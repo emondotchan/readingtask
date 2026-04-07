@@ -1,0 +1,1555 @@
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "安庆"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "蚌埠"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "亳州"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "池州"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "滁州"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "阜阳"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "合肥"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "淮北"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "淮南"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "黄山"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "六安"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "马鞍山"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "宿州"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "铜陵"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "芜湖"
+
+[[provinces]]
+ProvinceName = "安徽"
+CityName = "宣城"
+
+[[provinces]]
+ProvinceName = "北京"
+CityName = "北京"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "福清"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "福州"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "晋江"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "龙岩"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "南平"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "宁德"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "平潭县"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "莆田"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "泉州"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "三明"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "厦门"
+
+[[provinces]]
+ProvinceName = "福建"
+CityName = "漳州"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "白银"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "定西"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "嘉峪关"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "金昌"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "酒泉"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "兰州"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "临夏"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "陇南"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "庆阳"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "天水"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "武威"
+
+[[provinces]]
+ProvinceName = "甘肃"
+CityName = "张掖"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "潮州"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "东莞"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "佛山"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "广州"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "河源"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "惠州"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "江门"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "揭阳"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "连州"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "茂名"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "梅州"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "清远"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "汕头"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "汕尾"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "韶关"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "深圳"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "阳江"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "云浮"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "湛江"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "肇庆"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "中山"
+
+[[provinces]]
+ProvinceName = "广东"
+CityName = "珠海"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "百色"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "北海"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "崇左"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "防城港"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "贵港"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "桂林"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "河池"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "贺州"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "来宾"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "柳州"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "南宁"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "钦州"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "梧州"
+
+[[provinces]]
+ProvinceName = "广西"
+CityName = "玉林"
+
+[[provinces]]
+ProvinceName = "贵州"
+CityName = "安顺"
+
+[[provinces]]
+ProvinceName = "贵州"
+CityName = "毕节"
+
+[[provinces]]
+ProvinceName = "贵州"
+CityName = "都匀市"
+
+[[provinces]]
+ProvinceName = "贵州"
+CityName = "贵阳"
+
+[[provinces]]
+ProvinceName = "贵州"
+CityName = "六盘水"
+
+[[provinces]]
+ProvinceName = "贵州"
+CityName = "黔东南苗族"
+
+[[provinces]]
+ProvinceName = "贵州"
+CityName = "黔南"
+
+[[provinces]]
+ProvinceName = "贵州"
+CityName = "黔西南"
+
+[[provinces]]
+ProvinceName = "贵州"
+CityName = "黔西南布依族"
+
+[[provinces]]
+ProvinceName = "贵州"
+CityName = "铜仁"
+
+[[provinces]]
+ProvinceName = "贵州"
+CityName = "遵义"
+
+[[provinces]]
+ProvinceName = "海南"
+CityName = "昌江县"
+
+[[provinces]]
+ProvinceName = "海南"
+CityName = "儋州"
+
+[[provinces]]
+ProvinceName = "海南"
+CityName = "东方"
+
+[[provinces]]
+ProvinceName = "海南"
+CityName = "海口"
+
+[[provinces]]
+ProvinceName = "海南"
+CityName = "乐东黎族自治"
+
+[[provinces]]
+ProvinceName = "海南"
+CityName = "陵水黎族自治"
+
+[[provinces]]
+ProvinceName = "海南"
+CityName = "琼海"
+
+[[provinces]]
+ProvinceName = "海南"
+CityName = "三亚"
+
+[[provinces]]
+ProvinceName = "海南"
+CityName = "万宁"
+
+[[provinces]]
+ProvinceName = "海南"
+CityName = "文昌"
+
+[[provinces]]
+ProvinceName = "海南"
+CityName = "五指山"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "保定"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "沧州"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "承德"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "定州"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "邯郸"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "衡水"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "廊坊"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "秦皇岛"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "任丘"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "三河"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "石家庄"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "唐山"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "邢台"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "燕郊"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "张家口"
+
+[[provinces]]
+ProvinceName = "河北"
+CityName = "涿州"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "安阳"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "鹤壁"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "济源"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "焦作"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "开封"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "洛阳"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "漯河"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "南阳"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "平顶山"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "濮阳"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "三门峡"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "商丘"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "新乡"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "信阳"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "许昌"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "郑州"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "周口"
+
+[[provinces]]
+ProvinceName = "河南"
+CityName = "驻马店"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = " 绥化"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = "大庆"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = "哈尔滨"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = "鹤岗"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = "黑河"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = "鸡西"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = "佳木斯"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = "牡丹江"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = "七台河"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = "齐齐哈尔"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = "双鸭山"
+
+[[provinces]]
+ProvinceName = "黑龙江"
+CityName = "绥化"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "大冶"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "鄂州"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "恩施土家族苗"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "汉川"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "黄冈"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "黄石"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "荆门"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "荆州"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "潜江"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "十堰"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "随州"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "天门"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "武汉"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "仙桃"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "咸宁"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "襄阳"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "孝感"
+
+[[provinces]]
+ProvinceName = "湖北"
+CityName = "宜昌"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "长沙"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "常德"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "郴州"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "衡阳"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "怀化"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "吉首"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "吉首县"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "耒阳"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "浏阳"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "娄底"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "邵阳"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "湘潭"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "湘西土家族苗族自治州"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "湘西自治州"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "益阳"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "永州"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "岳阳"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "张家界"
+
+[[provinces]]
+ProvinceName = "湖南"
+CityName = "株洲"
+
+[[provinces]]
+ProvinceName = "吉林"
+CityName = "白城"
+
+[[provinces]]
+ProvinceName = "吉林"
+CityName = "白山"
+
+[[provinces]]
+ProvinceName = "吉林"
+CityName = "长春"
+
+[[provinces]]
+ProvinceName = "吉林"
+CityName = "吉林"
+
+[[provinces]]
+ProvinceName = "吉林"
+CityName = "辽源"
+
+[[provinces]]
+ProvinceName = "吉林"
+CityName = "四平"
+
+[[provinces]]
+ProvinceName = "吉林"
+CityName = "松原"
+
+[[provinces]]
+ProvinceName = "吉林"
+CityName = "通化"
+
+[[provinces]]
+ProvinceName = "吉林"
+CityName = "延吉"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "常熟"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "常州"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "淮安"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "昆山"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "连云港"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "南京"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "南通"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "苏州"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "宿迁"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "太仓"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "泰州"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "无锡"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "徐州"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "盐城"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "扬州"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "张家港"
+
+[[provinces]]
+ProvinceName = "江苏"
+CityName = "镇江"
+
+[[provinces]]
+ProvinceName = "江西"
+CityName = "抚州"
+
+[[provinces]]
+ProvinceName = "江西"
+CityName = "赣州"
+
+[[provinces]]
+ProvinceName = "江西"
+CityName = "吉安"
+
+[[provinces]]
+ProvinceName = "江西"
+CityName = "景德镇"
+
+[[provinces]]
+ProvinceName = "江西"
+CityName = "九江"
+
+[[provinces]]
+ProvinceName = "江西"
+CityName = "南昌"
+
+[[provinces]]
+ProvinceName = "江西"
+CityName = "萍乡"
+
+[[provinces]]
+ProvinceName = "江西"
+CityName = "上饶"
+
+[[provinces]]
+ProvinceName = "江西"
+CityName = "新余"
+
+[[provinces]]
+ProvinceName = "江西"
+CityName = "宜春"
+
+[[provinces]]
+ProvinceName = "江西"
+CityName = "鹰潭"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "鞍山"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "本溪"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "朝阳"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "大连"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "丹东"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "抚顺"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "阜新"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "葫芦岛"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "锦州"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "辽阳"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "盘锦"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "沈阳"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "铁岭"
+
+[[provinces]]
+ProvinceName = "辽宁"
+CityName = "营口"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "阿拉善盟"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "巴彦淖尔"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "包头"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "赤峰"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "鄂尔多斯"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "二连浩特"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "呼和浩特"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "呼伦贝尔"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "通辽"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "乌海"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "乌兰察布"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "乌兰浩特"
+
+[[provinces]]
+ProvinceName = "内蒙古"
+CityName = "锡林郭勒盟"
+
+[[provinces]]
+ProvinceName = "宁夏"
+CityName = "固原"
+
+[[provinces]]
+ProvinceName = "宁夏"
+CityName = "石嘴山"
+
+[[provinces]]
+ProvinceName = "宁夏"
+CityName = "吴忠"
+
+[[provinces]]
+ProvinceName = "宁夏"
+CityName = "银川"
+
+[[provinces]]
+ProvinceName = "宁夏"
+CityName = "中卫"
+
+[[provinces]]
+ProvinceName = "青海"
+CityName = "格尔木"
+
+[[provinces]]
+ProvinceName = "青海"
+CityName = "海东"
+
+[[provinces]]
+ProvinceName = "青海"
+CityName = "西宁"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "滨州"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "昌邑"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "德州"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "东营"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "菏泽"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "黄岛"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "即墨"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "济南"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "济宁"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "莱芜"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "聊城"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "临沂"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "青岛"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "日照"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "泰安"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "威海"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "潍坊"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "烟台"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "枣庄"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "章丘"
+
+[[provinces]]
+ProvinceName = "山东"
+CityName = "淄博"
+
+[[provinces]]
+ProvinceName = "山西"
+CityName = "长治"
+
+[[provinces]]
+ProvinceName = "山西"
+CityName = "大同"
+
+[[provinces]]
+ProvinceName = "山西"
+CityName = "晋城"
+
+[[provinces]]
+ProvinceName = "山西"
+CityName = "晋中"
+
+[[provinces]]
+ProvinceName = "山西"
+CityName = "临汾"
+
+[[provinces]]
+ProvinceName = "山西"
+CityName = "吕梁"
+
+[[provinces]]
+ProvinceName = "山西"
+CityName = "朔州"
+
+[[provinces]]
+ProvinceName = "山西"
+CityName = "太原"
+
+[[provinces]]
+ProvinceName = "山西"
+CityName = "忻州"
+
+[[provinces]]
+ProvinceName = "山西"
+CityName = "阳泉"
+
+[[provinces]]
+ProvinceName = "山西"
+CityName = "运城"
+
+[[provinces]]
+ProvinceName = "陕西"
+CityName = "安康"
+
+[[provinces]]
+ProvinceName = "陕西"
+CityName = "宝鸡"
+
+[[provinces]]
+ProvinceName = "陕西"
+CityName = "汉中"
+
+[[provinces]]
+ProvinceName = "陕西"
+CityName = "商洛"
+
+[[provinces]]
+ProvinceName = "陕西"
+CityName = "铜川"
+
+[[provinces]]
+ProvinceName = "陕西"
+CityName = "渭南"
+
+[[provinces]]
+ProvinceName = "陕西"
+CityName = "西安"
+
+[[provinces]]
+ProvinceName = "陕西"
+CityName = "咸阳"
+
+[[provinces]]
+ProvinceName = "陕西"
+CityName = "延安"
+
+[[provinces]]
+ProvinceName = "陕西"
+CityName = "榆林"
+
+[[provinces]]
+ProvinceName = "上海"
+CityName = "上海"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "巴中"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "成都"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "达州"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "德阳"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "广安"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "广元"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "乐山"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "泸州"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "眉山"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "绵阳"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "绵竹"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "内江"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "南充"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "攀枝花"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "遂宁"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "西昌"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "雅安"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "宜宾"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "资阳"
+
+[[provinces]]
+ProvinceName = "四川"
+CityName = "自贡"
+
+[[provinces]]
+ProvinceName = "天津"
+CityName = "天津"
+
+[[provinces]]
+ProvinceName = "西藏"
+CityName = "拉萨"
+
+[[provinces]]
+ProvinceName = "西藏"
+CityName = "那曲"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "阿克苏"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "博尔塔拉"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "昌吉"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "哈密"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "喀什"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "克拉玛依"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "库尔勒"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "奎屯"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "石河子"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "塔城"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "维吾尔族自治区"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "乌鲁木齐"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "五家渠"
+
+[[provinces]]
+ProvinceName = "新疆"
+CityName = "伊宁"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "保山"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "楚雄"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "大理"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "个旧"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "红河"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "昆明"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "丽江"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "临沧"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "怒江"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "普洱"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "曲靖"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "腾冲"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "文山壮族苗族"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "西双版纳"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "玉溪"
+
+[[provinces]]
+ProvinceName = "云南"
+CityName = "昭通"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "杭州"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "湖州"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "嘉善"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "嘉兴"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "金华"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "丽水"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "宁波"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "平湖"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "衢州"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "绍兴"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "台州"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "温州"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "永康"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "余姚"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "舟山"
+
+[[provinces]]
+ProvinceName = "浙江"
+CityName = "诸暨"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "璧山"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "长寿"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "大足"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "垫江"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "涪陵"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "合川"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "江津"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "开州"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "南川"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "彭水"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "綦江"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "黔江"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "荣昌"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "铜梁"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "潼南"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "万盛"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "万州"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "秀山"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "永川"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "酉阳"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "云阳"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "忠县"
+
+[[provinces]]
+ProvinceName = "重庆"
+CityName = "重庆"

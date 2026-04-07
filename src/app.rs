@@ -1,0 +1,59 @@
+use std::path::PathBuf;
+
+use anyhow::{Result, anyhow};
+use reading_task::{AppPaths, TaskItemOutcome, TaskRunRequest, TaskRunSummary, run_task};
+
+pub async fn run(request: TaskRunRequest) -> Result<()> {
+  let app_paths = AppPaths::new(data_dir());
+  let summary = run_task(&app_paths, request)
+    .await
+    .map_err(|error| anyhow!("{error}"))?;
+
+  render_items(&summary);
+  render_final_status(&summary);
+  Ok(())
+}
+
+fn render_items(summary: &TaskRunSummary) {
+  for item in &summary.items {
+    match item.outcome {
+      TaskItemOutcome::Success => {
+        let text = item.response_text.as_deref().unwrap_or("");
+        println!(
+          "[{}/{}] OpenID={} ShopCode={} {}-{} HTTP {}\n{}\n",
+          item.index,
+          summary.requested_count,
+          item.open_id,
+          item.shop_code,
+          item.province,
+          item.city,
+          item.http_status.unwrap_or_default(),
+          text
+        );
+      }
+      TaskItemOutcome::RequestError | TaskItemOutcome::ResponseReadError => {
+        let error_message = item.error_message.as_deref().unwrap_or("未知错误");
+        eprintln!(
+          "[{}/{}] OpenID={} ShopCode={} {}",
+          item.index, summary.requested_count, item.open_id, item.shop_code, error_message
+        );
+      }
+    }
+  }
+}
+
+fn render_final_status(summary: &TaskRunSummary) {
+  println!(
+    "执行完成：请求 {}，处理 {}，成功 {}，失败 {}，开始时间 {}，结束时间 {}",
+    summary.requested_count,
+    summary.processed_count,
+    summary.success_count,
+    summary.failure_count,
+    summary.started_at,
+    summary.finished_at
+  );
+}
+
+fn data_dir() -> PathBuf {
+  PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config")
+}
