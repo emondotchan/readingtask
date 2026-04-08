@@ -1,6 +1,5 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -14,6 +13,12 @@ use super::model::{
 };
 
 type DbPool = Pool<SqliteConnectionManager>;
+
+#[derive(Debug, Clone)]
+pub struct DbContext {
+  db_path: PathBuf,
+  pool: Arc<DbPool>,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -31,38 +36,46 @@ struct LegacySubmitReadLogPayload {
   read_id: Option<String>,
 }
 
-fn db_cache() -> &'static Mutex<HashMap<PathBuf, Arc<DbPool>>> {
-  static DB_CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<DbPool>>>> = OnceLock::new();
-  DB_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-pub fn get_pool(paths: &AppPaths) -> Result<Arc<DbPool>, AppError> {
-  let mut cache = db_cache()
-    .lock()
-    .map_err(|_| AppError::ResourceUnavailableError("数据库缓存锁已损坏".to_string()))?;
-
-  if let Some(pool) = cache.get(&paths.db_path) {
-    return Ok(Arc::clone(pool));
+impl DbContext {
+  pub fn from_paths(paths: &AppPaths) -> Result<Self, AppError> {
+    Self::new(paths.db_path.clone())
   }
 
-  let manager = SqliteConnectionManager::file(&paths.db_path);
-  let pool = Pool::builder()
-    .build(manager)
-    .map_err(|e| AppError::ResourceUnavailableError(format!("无法创建连接池: {}", e)))?;
-  let pool = Arc::new(pool);
-  cache.insert(paths.db_path.clone(), Arc::clone(&pool));
-  Ok(pool)
+  pub fn new(db_path: PathBuf) -> Result<Self, AppError> {
+    let manager = SqliteConnectionManager::file(&db_path);
+    let pool = Pool::builder()
+      .build(manager)
+      .map_err(|e| AppError::ResourceUnavailableError(format!("无法创建连接池: {}", e)))?;
+
+    Ok(Self {
+      db_path,
+      pool: Arc::new(pool),
+    })
+  }
+
+  pub fn db_path(&self) -> &std::path::Path {
+    &self.db_path
+  }
 }
 
-fn get_conn(paths: &AppPaths) -> Result<r2d2::PooledConnection<SqliteConnectionManager>, AppError> {
-  let pool = get_pool(paths)?;
-  pool
+pub fn init_db_context(paths: &AppPaths) -> Result<DbContext, AppError> {
+  let db = DbContext::from_paths(paths)?;
+  init_db(&db)?;
+  Ok(db)
+}
+
+pub fn get_pool(db: &DbContext) -> Arc<DbPool> {
+  Arc::clone(&db.pool)
+}
+
+fn get_conn(db: &DbContext) -> Result<r2d2::PooledConnection<SqliteConnectionManager>, AppError> {
+  db.pool
     .get()
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))
 }
 
-pub fn init_db(paths: &AppPaths) -> Result<(), AppError> {
-  let conn = get_conn(paths)?;
+pub fn init_db(db: &DbContext) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
 
   conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS open_ids (open_id TEXT PRIMARY KEY, manager_id TEXT);
@@ -144,8 +157,8 @@ fn ensure_task_results_schema(conn: &rusqlite::Connection) -> Result<(), AppErro
   Ok(())
 }
 
-pub fn get_all_open_id_records(paths: &AppPaths) -> Result<Vec<OpenIdRecord>, AppError> {
-  let conn = get_conn(paths)?;
+pub fn get_all_open_id_records(db: &DbContext) -> Result<Vec<OpenIdRecord>, AppError> {
+  let conn = get_conn(db)?;
   let mut stmt = conn
     .prepare("SELECT open_id, manager_id FROM open_ids")
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
@@ -162,17 +175,17 @@ pub fn get_all_open_id_records(paths: &AppPaths) -> Result<Vec<OpenIdRecord>, Ap
   Ok(records)
 }
 
-pub fn get_all_open_ids(paths: &AppPaths) -> Result<Vec<String>, AppError> {
+pub fn get_all_open_ids(db: &DbContext) -> Result<Vec<String>, AppError> {
   Ok(
-    get_all_open_id_records(paths)?
+    get_all_open_id_records(db)?
       .into_iter()
       .map(|r| r.open_id)
       .collect(),
   )
 }
 
-pub fn add_open_id(paths: &AppPaths, record: &OpenIdRecord) -> Result<(), AppError> {
-  let conn = get_conn(paths)?;
+pub fn add_open_id(db: &DbContext, record: &OpenIdRecord) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
   conn
     .execute(
       "INSERT OR REPLACE INTO open_ids (open_id, manager_id) VALUES (?1, ?2)",
@@ -182,38 +195,38 @@ pub fn add_open_id(paths: &AppPaths, record: &OpenIdRecord) -> Result<(), AppErr
   Ok(())
 }
 
-pub fn delete_open_id(paths: &AppPaths, open_id: &str) -> Result<(), AppError> {
-  let conn = get_conn(paths)?;
+pub fn delete_open_id(db: &DbContext, open_id: &str) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
   conn
     .execute("DELETE FROM open_ids WHERE open_id = ?1", params![open_id])
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   Ok(())
 }
 
-pub fn import_open_ids_csv(paths: &AppPaths, csv_text: &str) -> Result<usize, AppError> {
+pub fn import_open_ids_csv(db: &DbContext, csv_text: &str) -> Result<usize, AppError> {
   let records = parse_open_id_csv(csv_text)?;
   for record in &records {
-    add_open_id(paths, record)?;
+    add_open_id(db, record)?;
   }
   Ok(records.len())
 }
 
-pub fn add_or_update_shop(paths: &AppPaths, shop: &ShopRecord) -> Result<(), AppError> {
-  let conn = get_conn(paths)?;
+pub fn add_or_update_shop(db: &DbContext, shop: &ShopRecord) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
   conn.execute("INSERT OR REPLACE INTO shops (shop_code, province, city, fc, shop_type) VALUES (?1, ?2, ?3, ?4, ?5)", params![shop.shop_code, shop.province, shop.city, shop.fc, shop.shop_type as i64]).map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   Ok(())
 }
 
-pub fn delete_shop(paths: &AppPaths, shop_code: &str) -> Result<(), AppError> {
-  let conn = get_conn(paths)?;
+pub fn delete_shop(db: &DbContext, shop_code: &str) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
   conn
     .execute("DELETE FROM shops WHERE shop_code = ?1", params![shop_code])
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   Ok(())
 }
 
-pub fn get_all_fcs(paths: &AppPaths) -> Result<Vec<FcRecord>, AppError> {
-  let conn = get_conn(paths)?;
+pub fn get_all_fcs(db: &DbContext) -> Result<Vec<FcRecord>, AppError> {
+  let conn = get_conn(db)?;
   let mut stmt = conn
     .prepare("SELECT name, manager_id FROM fcs")
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
@@ -230,8 +243,8 @@ pub fn get_all_fcs(paths: &AppPaths) -> Result<Vec<FcRecord>, AppError> {
   Ok(fcs)
 }
 
-pub fn add_or_update_fc(paths: &AppPaths, fc: &FcRecord) -> Result<(), AppError> {
-  let conn = get_conn(paths)?;
+pub fn add_or_update_fc(db: &DbContext, fc: &FcRecord) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
   conn
     .execute(
       "INSERT OR REPLACE INTO fcs (name, manager_id) VALUES (?1, ?2)",
@@ -241,16 +254,16 @@ pub fn add_or_update_fc(paths: &AppPaths, fc: &FcRecord) -> Result<(), AppError>
   Ok(())
 }
 
-pub fn delete_fc(paths: &AppPaths, name: &str) -> Result<(), AppError> {
-  let conn = get_conn(paths)?;
+pub fn delete_fc(db: &DbContext, name: &str) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
   conn
     .execute("DELETE FROM fcs WHERE name = ?1", params![name])
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   Ok(())
 }
 
-pub fn get_all_monthly_tasks(paths: &AppPaths) -> Result<Vec<MonthlyTask>, AppError> {
-  let conn = get_conn(paths)?;
+pub fn get_all_monthly_tasks(db: &DbContext) -> Result<Vec<MonthlyTask>, AppError> {
+  let conn = get_conn(db)?;
   let mut stmt = conn.prepare("SELECT id, fc_name, s_manager_id, s_course_id, task_type, total_target, target_days, created_at, shopcodes_json FROM monthly_tasks").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   let tasks = stmt
     .query_map([], |row| {
@@ -273,8 +286,8 @@ pub fn get_all_monthly_tasks(paths: &AppPaths) -> Result<Vec<MonthlyTask>, AppEr
   Ok(tasks)
 }
 
-pub fn add_monthly_task(paths: &AppPaths, task: &MonthlyTask) -> Result<(), AppError> {
-  let conn = get_conn(paths)?;
+pub fn add_monthly_task(db: &DbContext, task: &MonthlyTask) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
   let shopcodes_json = serde_json::to_string(&task.shopcodes)
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   conn.execute("INSERT INTO monthly_tasks (id, fc_name, s_manager_id, s_course_id, task_type, total_target, target_days, created_at, shopcodes_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -282,8 +295,8 @@ pub fn add_monthly_task(paths: &AppPaths, task: &MonthlyTask) -> Result<(), AppE
   Ok(())
 }
 
-pub fn delete_monthly_task(paths: &AppPaths, id: &str) -> Result<(), AppError> {
-  let conn = get_conn(paths)?;
+pub fn delete_monthly_task(db: &DbContext, id: &str) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
   conn
     .execute("DELETE FROM monthly_tasks WHERE id = ?1", params![id])
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
@@ -291,11 +304,11 @@ pub fn delete_monthly_task(paths: &AppPaths, id: &str) -> Result<(), AppError> {
 }
 
 pub fn get_daily_progress(
-  paths: &AppPaths,
+  db: &DbContext,
   task_id: &str,
   date: &str,
 ) -> Result<Option<DailyProgress>, AppError> {
-  let conn = get_conn(paths)?;
+  let conn = get_conn(db)?;
   let mut stmt = conn.prepare("SELECT task_id, date, target_count, completed_count, is_locked, shopcodes_json FROM daily_progress WHERE task_id = ?1 AND date = ?2").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   let progress = stmt
     .query_row(params![task_id, date], |row| {
@@ -315,10 +328,10 @@ pub fn get_daily_progress(
 }
 
 pub fn get_all_progress_for_task(
-  paths: &AppPaths,
+  db: &DbContext,
   task_id: &str,
 ) -> Result<Vec<DailyProgress>, AppError> {
-  let conn = get_conn(paths)?;
+  let conn = get_conn(db)?;
   let mut stmt = conn
     .prepare(
       "SELECT task_id, date, target_count, completed_count, is_locked, shopcodes_json FROM daily_progress WHERE task_id = ?1 ORDER BY date ASC",
@@ -342,8 +355,8 @@ pub fn get_all_progress_for_task(
   Ok(progress)
 }
 
-pub fn save_daily_progress(paths: &AppPaths, progress: &DailyProgress) -> Result<(), AppError> {
-  let conn = get_conn(paths)?;
+pub fn save_daily_progress(db: &DbContext, progress: &DailyProgress) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
   let shopcodes_json = serde_json::to_string(&progress.shopcodes)
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   conn.execute("INSERT OR REPLACE INTO daily_progress (task_id, date, target_count, completed_count, is_locked, shopcodes_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -352,11 +365,11 @@ pub fn save_daily_progress(paths: &AppPaths, progress: &DailyProgress) -> Result
 }
 
 pub fn save_task_result(
-  paths: &AppPaths,
+  db: &DbContext,
   task_id: &str,
   result: &TaskItemResult,
 ) -> Result<(), AppError> {
-  let conn = get_conn(paths)?;
+  let conn = get_conn(db)?;
   let now = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap()
@@ -367,18 +380,18 @@ pub fn save_task_result(
 }
 
 pub fn save_task_results(
-  paths: &AppPaths,
+  db: &DbContext,
   task_id: &str,
   results: &[TaskItemResult],
 ) -> Result<(), AppError> {
   for result in results {
-    save_task_result(paths, task_id, result)?;
+    save_task_result(db, task_id, result)?;
   }
   Ok(())
 }
 
-pub fn get_task_results(paths: &AppPaths, task_id: &str) -> Result<Vec<TaskItemResult>, AppError> {
-  let conn = get_conn(paths)?;
+pub fn get_task_results(db: &DbContext, task_id: &str) -> Result<Vec<TaskItemResult>, AppError> {
+  let conn = get_conn(db)?;
   let mut stmt = conn.prepare("SELECT strftime('%Y-%m-%d', timestamp_micros / 1000000.0, 'unixepoch', 'localtime') AS executed_date, index_num, open_id, shop_code, province, city, http_status, response_text, error_message, outcome, COALESCE(rtn_msg, response_text, error_message), read_id FROM task_results WHERE task_id = ?1 ORDER BY timestamp_micros DESC").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   let results = stmt
     .query_map(params![task_id], |row| {
@@ -444,10 +457,10 @@ fn infer_submit_err_from_outcome(outcome: super::model::TaskItemOutcome) -> Opti
 }
 
 pub fn get_used_open_ids_for_month(
-  paths: &AppPaths,
+  db: &DbContext,
   month_prefix: &str,
 ) -> Result<std::collections::HashSet<String>, AppError> {
-  let conn = get_conn(paths)?;
+  let conn = get_conn(db)?;
   let mut stmt = conn
     .prepare("SELECT open_id FROM task_results WHERE task_id LIKE ?1")
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
@@ -493,12 +506,12 @@ fn parse_open_id_csv(csv_text: &str) -> Result<Vec<OpenIdRecord>, AppError> {
 }
 
 pub fn find_monthly_tasks_by_month_fc_course(
-  paths: &AppPaths,
+  db: &DbContext,
   month_prefix: &str,
   fc_name: &str,
   course_id: &str,
 ) -> Result<Vec<MonthlyTask>, AppError> {
-  let conn = get_conn(paths)?;
+  let conn = get_conn(db)?;
   let mut stmt = conn.prepare("SELECT id, fc_name, s_manager_id, s_course_id, task_type, total_target, target_days, created_at, shopcodes_json FROM monthly_tasks WHERE id LIKE ?1 AND fc_name = ?2 AND s_course_id = ?3").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   let tasks = stmt
     .query_map(
@@ -524,8 +537,8 @@ pub fn find_monthly_tasks_by_month_fc_course(
   Ok(tasks)
 }
 
-pub fn get_all_shops(paths: &AppPaths) -> Result<Vec<ShopRecord>, AppError> {
-  let conn = get_conn(paths)?;
+pub fn get_all_shops(db: &DbContext) -> Result<Vec<ShopRecord>, AppError> {
+  let conn = get_conn(db)?;
   let mut stmt = conn
     .prepare("SELECT province, city, shop_code, fc, shop_type FROM shops")
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
@@ -548,11 +561,11 @@ pub fn get_all_shops(paths: &AppPaths) -> Result<Vec<ShopRecord>, AppError> {
 }
 
 pub fn get_shop_count_by_fc_and_type(
-  paths: &AppPaths,
+  db: &DbContext,
   fc_name: &str,
   task_type: &str,
 ) -> Result<usize, AppError> {
-  let conn = get_conn(paths)?;
+  let conn = get_conn(db)?;
   let shop_type = match task_type {
     "Avene" => SHOP_TYPE_AVENE,
     "Klorane" => SHOP_TYPE_KLORANE,

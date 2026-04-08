@@ -9,7 +9,7 @@ pub use db::{
   delete_monthly_task, delete_open_id, delete_shop, get_all_fcs, get_all_monthly_tasks,
   get_all_open_id_records, get_all_open_ids, get_all_progress_for_task, get_all_shops,
   get_daily_progress, get_shop_count_by_fc_and_type, get_task_results, get_used_open_ids_for_month,
-  import_open_ids_csv, init_db, save_daily_progress,
+  import_open_ids_csv, init_db, init_db_context, save_daily_progress, DbContext,
 };
 pub use error::AppError;
 pub use executor::{

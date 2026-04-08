@@ -13,6 +13,11 @@ pub fn run() {
     .setup(|app| {
       log::info!(target: "reading_task::tauri::setup", "loading desktop runtime state");
       let runtime_paths = bootstrap::initialize(app)?;
+      let db = runtime_paths
+        .db_path
+        .as_ref()
+        .map(|db_path| reading_task::init_db_context(&reading_task::AppPaths::new_with_db_path(db_path.clone())))
+        .transpose()?;
       if let Some(db_path) = &runtime_paths.db_path {
         log::info!(
           target: "reading_task::tauri::setup",
@@ -22,7 +27,7 @@ pub fn run() {
       } else {
         log::info!(target: "reading_task::tauri::setup", "sqlite not configured yet");
       }
-      app.manage(commands::RuntimeState::new(runtime_paths));
+      app.manage(commands::RuntimeState::new(runtime_paths, db));
       app.manage(commands::TaskPauseRegistry::default());
       Ok(())
     })

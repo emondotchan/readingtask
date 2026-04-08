@@ -6,11 +6,12 @@ use rand::seq::SliceRandom;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
 
+use super::db::DbContext;
 use super::error::AppError;
 use super::loader::load_runtime_data;
 use super::model::{
-  AppPaths, DailyProgress, MonthlyTask, MonthlyTaskPlanPreview, OpenIdRecord,
-  QuickRunArchiveResult, QuickRunArchiveStatus, SHOP_TYPE_AVENE, SHOP_TYPE_AVENE_KLORANE,
+  DailyProgress, MonthlyTask, MonthlyTaskPlanPreview, OpenIdRecord, QuickRunArchiveResult,
+  QuickRunArchiveStatus, SHOP_TYPE_AVENE, SHOP_TYPE_AVENE_KLORANE,
   SHOP_TYPE_KLORANE, ShopRecord, TaskItemOutcome, TaskItemResult, TaskProgress, TaskRunRequest,
   TaskRunSummary,
 };
@@ -60,18 +61,18 @@ struct PreparedRun {
 }
 
 pub fn preview_monthly_task_plan(
-  paths: &AppPaths,
+  db: &DbContext,
   task: &MonthlyTask,
 ) -> Result<MonthlyTaskPlanPreview, AppError> {
-  let runtime_data = load_runtime_data(paths)?;
+  let runtime_data = load_runtime_data(db)?;
   build_monthly_task_plan(task, runtime_data.shops)
 }
 
 pub fn create_monthly_task_with_plan(
-  paths: &AppPaths,
+  db: &DbContext,
   task: &MonthlyTask,
 ) -> Result<MonthlyTaskPlanPreview, AppError> {
-  let plan = preview_monthly_task_plan(paths, task)?;
+  let plan = preview_monthly_task_plan(db, task)?;
   let planned_task = MonthlyTask {
     total_target: plan.total_target,
     target_days: plan.target_days,
@@ -83,23 +84,23 @@ pub fn create_monthly_task_with_plan(
     ..task.clone()
   };
 
-  super::db::add_monthly_task(paths, &planned_task)?;
+  super::db::add_monthly_task(db, &planned_task)?;
   for daily_plan in &plan.daily_plans {
-    super::db::save_daily_progress(paths, daily_plan)?;
+    super::db::save_daily_progress(db, daily_plan)?;
   }
 
   Ok(plan)
 }
 
 pub async fn run_task(
-  paths: &AppPaths,
+  db: &DbContext,
   request: TaskRunRequest,
 ) -> Result<TaskRunSummary, AppError> {
-  run_task_with_progress(paths, request, |_| {}, None).await
+  run_task_with_progress(db, request, |_| {}, None).await
 }
 
 pub async fn run_daily_task_with_progress<F>(
-  paths: &AppPaths,
+  db: &DbContext,
   task_id: &str,
   date: &str,
   on_progress: F,
@@ -107,11 +108,11 @@ pub async fn run_daily_task_with_progress<F>(
 where
   F: FnMut(TaskProgress),
 {
-  run_daily_task_with_progress_controlled(paths, task_id, date, on_progress, || false).await
+  run_daily_task_with_progress_controlled(db, task_id, date, on_progress, || false).await
 }
 
 pub async fn run_daily_task_with_progress_controlled<F, C>(
-  paths: &AppPaths,
+  db: &DbContext,
   task_id: &str,
   date: &str,
   mut on_progress: F,
@@ -121,27 +122,27 @@ where
   F: FnMut(TaskProgress),
   C: Fn() -> bool,
 {
-  let tasks = super::db::get_all_monthly_tasks(paths)?;
+  let tasks = super::db::get_all_monthly_tasks(db)?;
   let task = tasks
     .into_iter()
     .find(|t| t.id == task_id)
     .ok_or_else(|| AppError::ResourceUnavailableError(format!("未找到月度任务: {}", task_id)))?;
 
-  let runtime_data = load_runtime_data(paths)?;
+  let runtime_data = load_runtime_data(db)?;
   let client = build_http_client()?;
   let started_at = now_timestamp_string();
 
   // Get all progress to compute today's target
-  let all_progress = super::db::get_all_progress_for_task(paths, task_id)?;
+  let all_progress = super::db::get_all_progress_for_task(db, task_id)?;
   let total_completed: usize = all_progress.iter().map(|p| p.completed_count).sum();
 
   if total_completed >= task.total_target {
     return Err(AppError::ExecutionError("该月度任务已全部完成".to_string()));
   }
 
-  let mut today_progress = ensure_daily_progress(paths, &task, date)?;
+  let mut today_progress = ensure_daily_progress(db, &task, date)?;
 
-  super::db::save_daily_progress(paths, &today_progress)?;
+  super::db::save_daily_progress(db, &today_progress)?;
 
   if today_progress.is_locked {
     return Err(AppError::ExecutionError(
@@ -151,7 +152,7 @@ where
 
   if today_progress.completed_count >= today_progress.target_count {
     today_progress.is_locked = true;
-    super::db::save_daily_progress(paths, &today_progress)?;
+    super::db::save_daily_progress(db, &today_progress)?;
     return Err(AppError::ExecutionError(
       "今日任务已经完成，请明天再执行".to_string(),
     ));
@@ -168,7 +169,7 @@ where
   }
 
   let selected_shops = if today_progress.shopcodes.is_empty() {
-    let used_shop_codes = super::db::get_task_results(paths, task_id)?
+    let used_shop_codes = super::db::get_task_results(db, task_id)?
       .into_iter()
       .map(|item| item.shop_code)
       .collect::<HashSet<_>>();
@@ -182,7 +183,7 @@ where
     select_planned_shops(valid_shops, &today_progress.shopcodes)?
   };
   let month_prefix = task_month_prefix_from_date(date)?;
-  let used_open_ids = super::db::get_used_open_ids_for_month(paths, &month_prefix)?;
+  let used_open_ids = super::db::get_used_open_ids_for_month(db, &month_prefix)?;
   let selected_open_ids = select_manager_open_ids(
     runtime_data.open_ids,
     &task.s_manager_id,
@@ -227,11 +228,11 @@ where
     let item = execute_single_request(&client, &body, referer, index, open_id, shop).await;
 
     // Persist result to DB for history viewing
-    let _ = super::db::save_task_result(paths, task_id, &item);
+    let _ = super::db::save_task_result(db, task_id, &item);
 
     if item.outcome == TaskItemOutcome::Success {
       today_progress.completed_count += 1;
-      let _ = super::db::save_daily_progress(paths, &today_progress);
+      let _ = super::db::save_daily_progress(db, &today_progress);
     }
 
     items.push(item.clone());
@@ -251,7 +252,7 @@ where
   let failure_count = processed_count.saturating_sub(success_count);
 
   today_progress.is_locked = true;
-  super::db::save_daily_progress(paths, &today_progress)?;
+  super::db::save_daily_progress(db, &today_progress)?;
 
   Ok(TaskRunSummary {
     requested_count: to_run,
@@ -349,7 +350,7 @@ async fn execute_single_request(
 }
 
 pub async fn run_task_with_progress<F>(
-  paths: &AppPaths,
+  db: &DbContext,
   request: TaskRunRequest,
   mut on_progress: F,
   run_date: Option<&str>,
@@ -357,7 +358,7 @@ pub async fn run_task_with_progress<F>(
 where
   F: FnMut(TaskProgress),
 {
-  let prepared = prepare_run(paths, &request, run_date)?;
+  let prepared = prepare_run(db, &request, run_date)?;
   let started_at = now_timestamp_string();
   let client = build_http_client()?;
   let mut items = Vec::new();
@@ -451,7 +452,7 @@ where
     .count();
   let processed_count = items.len();
   let failure_count = processed_count.saturating_sub(success_count);
-  let archive_result = archive_quick_run_results(paths, &request, &items, run_date)?;
+  let archive_result = archive_quick_run_results(db, &request, &items, run_date)?;
 
   Ok(TaskRunSummary {
     requested_count: prepared.requested_count,
@@ -466,7 +467,7 @@ where
 }
 
 fn archive_quick_run_results(
-  paths: &AppPaths,
+  db: &DbContext,
   request: &TaskRunRequest,
   items: &[TaskItemResult],
   run_date: Option<&str>,
@@ -474,18 +475,18 @@ fn archive_quick_run_results(
   let run_date = run_date
     .map(ToOwned::to_owned)
     .unwrap_or_else(current_date_string);
-  archive_quick_run_results_for_date(paths, request, items, &run_date)
+  archive_quick_run_results_for_date(db, request, items, &run_date)
 }
 
 fn archive_quick_run_results_for_date(
-  paths: &AppPaths,
+  db: &DbContext,
   request: &TaskRunRequest,
   items: &[TaskItemResult],
   run_date: &str,
 ) -> Result<QuickRunArchiveResult, AppError> {
   let month_prefix = task_month_prefix_from_date(&run_date)?;
   let matched_tasks = super::db::find_monthly_tasks_by_month_fc_course(
-    paths,
+    db,
     &month_prefix,
     &request.fc,
     &request.s_course_id,
@@ -514,16 +515,16 @@ fn archive_quick_run_results_for_date(
   }
 
   let task = &matched_tasks[0];
-  super::db::save_task_results(paths, &task.id, items)?;
+  super::db::save_task_results(db, &task.id, items)?;
   let success_count = items
     .iter()
     .filter(|item| item.outcome == TaskItemOutcome::Success)
     .count();
 
   if success_count > 0 {
-    let mut progress = ensure_daily_progress(paths, task, run_date)?;
+    let mut progress = ensure_daily_progress(db, task, run_date)?;
     progress.completed_count += success_count;
-    super::db::save_daily_progress(paths, &progress)?;
+    super::db::save_daily_progress(db, &progress)?;
   }
 
   Ok(QuickRunArchiveResult {
@@ -612,12 +613,12 @@ fn parse_submit_read_log_payload(text: &str) -> Option<SubmitReadLogPayload> {
 }
 
 fn prepare_run(
-  paths: &AppPaths,
+  db: &DbContext,
   request: &TaskRunRequest,
   run_date: Option<&str>,
 ) -> Result<PreparedRun, AppError> {
   validate_request(request)?;
-  let runtime_data = load_runtime_data(paths)?;
+  let runtime_data = load_runtime_data(db)?;
   let selected_shops = select_shops(runtime_data.shops, request)?;
   let requested_count = if request.shopcodes.is_empty() {
     request.count
@@ -628,7 +629,7 @@ fn prepare_run(
     .map(ToOwned::to_owned)
     .unwrap_or_else(current_date_string);
   let month_prefix = task_month_prefix_from_date(&run_date)?;
-  let used_open_ids = super::db::get_used_open_ids_for_month(paths, &month_prefix)?;
+  let used_open_ids = super::db::get_used_open_ids_for_month(db, &month_prefix)?;
   let selected_open_ids = select_manager_open_ids(
     runtime_data.open_ids,
     &request.s_manager_id,
@@ -836,15 +837,15 @@ fn build_http_client() -> Result<reqwest::Client, AppError> {
 }
 
 fn ensure_daily_progress(
-  paths: &AppPaths,
+  db: &DbContext,
   task: &MonthlyTask,
   date: &str,
 ) -> Result<super::model::DailyProgress, AppError> {
-  if let Some(progress) = super::db::get_daily_progress(paths, &task.id, date)? {
+  if let Some(progress) = super::db::get_daily_progress(db, &task.id, date)? {
     return Ok(progress);
   }
 
-  let all_progress = super::db::get_all_progress_for_task(paths, &task.id)?;
+  let all_progress = super::db::get_all_progress_for_task(db, &task.id)?;
   let total_completed: usize = all_progress.iter().map(|p| p.completed_count).sum();
   let remaining_count = task.total_target.saturating_sub(total_completed);
   let target_count = random_daily_target(remaining_count);

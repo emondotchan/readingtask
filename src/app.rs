@@ -1,10 +1,9 @@
 use anyhow::{Result, anyhow};
 use log::{error, info};
-use reading_task::{AppPaths, TaskItemOutcome, TaskRunRequest, TaskRunSummary, run_task};
+use reading_task::{DbContext, TaskItemOutcome, TaskRunRequest, TaskRunSummary, run_task};
 
-pub async fn run(request: TaskRunRequest) -> Result<()> {
-  let app_paths = AppPaths::new();
-  let summary = run_task(&app_paths, request)
+pub async fn run(db: &DbContext, request: TaskRunRequest) -> Result<()> {
+  let summary = run_task(db, request)
     .await
     .map_err(|error| anyhow!("{error}"))?;
 

@@ -1,5 +1,6 @@
 use super::error::AppError;
-use super::model::{AppPaths, OpenIdRecord, ShopRecord};
+use super::db::DbContext;
+use super::model::{OpenIdRecord, ShopRecord};
 
 #[derive(Debug)]
 pub(crate) struct RuntimeData {
@@ -7,9 +8,8 @@ pub(crate) struct RuntimeData {
   pub(crate) shops: Vec<ShopRecord>,
 }
 
-pub(crate) fn load_runtime_data(paths: &AppPaths) -> Result<RuntimeData, AppError> {
-  super::db::init_db(paths)?;
-  let pool = super::db::get_pool(paths)?;
+pub(crate) fn load_runtime_data(db: &DbContext) -> Result<RuntimeData, AppError> {
+  let pool = super::db::get_pool(db);
   let conn = pool
     .get()
     .map_err(|e: r2d2::Error| AppError::ResourceUnavailableError(e.to_string()))?;
@@ -34,7 +34,7 @@ pub(crate) fn load_runtime_data(paths: &AppPaths) -> Result<RuntimeData, AppErro
     ));
   }
 
-  let shops = super::db::get_all_shops(paths)?;
+  let shops = super::db::get_all_shops(db)?;
 
   Ok(RuntimeData { open_ids, shops })
 }
