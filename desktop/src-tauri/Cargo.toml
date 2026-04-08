@@ -13,6 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.0.0", features = [] }
 
 [dependencies]
+log.workspace = true
 reading_task = { path = "../.." }
 serde.workspace = true
 serde_json.workspace = true

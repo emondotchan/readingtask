@@ -1,4 +1,6 @@
+mod logging;
 mod core;
+pub use logging::init_logging;
 pub use core::{
   AppError, AppPaths, DailyProgress, FcRecord, MonthlyTask, MonthlyTaskPlanPreview, OpenIdRecord,
   QuickRunArchiveResult, QuickRunArchiveStatus, ShopRecord, TaskItemOutcome, TaskItemResult,

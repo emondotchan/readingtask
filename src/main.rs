@@ -6,6 +6,7 @@ use clap::Parser;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+  reading_task::init_logging();
   let request = cli::Args::parse().into_task_run_request();
   app::run(request).await
 }

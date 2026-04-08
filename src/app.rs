@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use log::{error, info};
 use reading_task::{AppPaths, TaskItemOutcome, TaskRunRequest, TaskRunSummary, run_task};
 
 pub async fn run(request: TaskRunRequest) -> Result<()> {
@@ -17,7 +18,7 @@ fn render_items(summary: &TaskRunSummary) {
     match item.outcome {
       TaskItemOutcome::Success => {
         let text = item.response_text.as_deref().unwrap_or("");
-        println!(
+        info!(
           "[{}/{}] OpenID={} ShopCode={} {}-{} HTTP {}\n{}\n",
           item.index,
           summary.requested_count,
@@ -31,7 +32,7 @@ fn render_items(summary: &TaskRunSummary) {
       }
       TaskItemOutcome::RequestError | TaskItemOutcome::ResponseReadError => {
         let error_message = item.error_message.as_deref().unwrap_or("未知错误");
-        eprintln!(
+        error!(
           "[{}/{}] OpenID={} ShopCode={} {}",
           item.index, summary.requested_count, item.open_id, item.shop_code, error_message
         );
@@ -41,7 +42,7 @@ fn render_items(summary: &TaskRunSummary) {
 }
 
 fn render_final_status(summary: &TaskRunSummary) {
-  println!(
+  info!(
     "执行完成：请求 {}，处理 {}，成功 {}，失败 {}，开始时间 {}，结束时间 {}",
     summary.requested_count,
     summary.processed_count,

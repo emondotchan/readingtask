@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use log::Level;
 use reading_task::{
   AppPaths, FcRecord, MonthlyTask, MonthlyTaskPlanPreview, OpenIdRecord, ShopRecord,
   TaskRunRequest, TaskRunSummary,
@@ -14,9 +15,11 @@ use tauri::{Emitter, Manager};
 use crate::bootstrap::{self, RuntimePaths};
 use crate::error::CommandError;
 
-fn log_command(level: &str, command: &str, message: impl AsRef<str>) {
-  eprintln!(
-    "[reading_task::tauri::{command}][{level}] {}",
+fn log_command(level: Level, command: &str, message: impl AsRef<str>) {
+  log::log!(
+    target: &format!("reading_task::tauri::{command}"),
+    level,
+    "{}",
     message.as_ref()
   );
 }
@@ -308,15 +311,15 @@ pub async fn delete_shop(app: tauri::AppHandle, shop_code: String) -> Result<(),
 pub async fn get_fcs(app: tauri::AppHandle) -> Result<Vec<FcRecord>, CommandError> {
   let paths = resolve_paths(&app)?;
   log_command(
-    "INFO",
+    Level::Info,
     "get_fcs",
     format!("db_path={}", paths.db_path.display()),
   );
   let fcs = reading_task::get_all_fcs(&paths).map_err(|error| {
-    log_command("ERROR", "get_fcs", error.to_string());
+    log_command(Level::Error, "get_fcs", error.to_string());
     CommandError::from(error)
   })?;
-  log_command("INFO", "get_fcs", format!("loaded {} fc records", fcs.len()));
+  log_command(Level::Info, "get_fcs", format!("loaded {} fc records", fcs.len()));
   Ok(fcs)
 }
 
@@ -341,10 +344,10 @@ pub async fn get_shop_count(
   task_type: String,
 ) -> Result<usize, CommandError> {
   let paths = resolve_paths(&app)?;
-  log_command("INFO", "get_shop_count", format!("fc_name={fc_name} task_type={task_type}"));
+  log_command(Level::Info, "get_shop_count", format!("fc_name={fc_name} task_type={task_type}"));
   let count = reading_task::get_shop_count_by_fc_and_type(&paths, &fc_name, &task_type)
     .map_err(CommandError::from)?;
-  log_command("INFO", "get_shop_count", format!("count={count}"));
+  log_command(Level::Info, "get_shop_count", format!("count={count}"));
   Ok(count)
 }
 
@@ -363,16 +366,16 @@ pub async fn get_monthly_tasks(
 ) -> Result<Vec<reading_task::MonthlyTask>, CommandError> {
   let paths = resolve_paths(&app)?;
   log_command(
-    "INFO",
+    Level::Info,
     "get_monthly_tasks",
     format!("db_path={}", paths.db_path.display()),
   );
   let tasks = reading_task::get_all_monthly_tasks(&paths).map_err(|error| {
-    log_command("ERROR", "get_monthly_tasks", error.to_string());
+    log_command(Level::Error, "get_monthly_tasks", error.to_string());
     CommandError::from(error)
   })?;
   log_command(
-    "INFO",
+    Level::Info,
     "get_monthly_tasks",
     format!("loaded {} monthly tasks", tasks.len()),
   );

@@ -563,7 +563,7 @@ pub fn get_shop_count_by_fc_and_type(
     "SELECT COUNT(*) FROM shops WHERE fc = ?1 AND (shop_type = ?2 OR shop_type = {})",
     SHOP_TYPE_AVENE_KLORANE
   );
-  eprintln!(
+  log::debug!(
     "[DEBUG] get_shop_count_by_fc_and_type: SQL={sql} fc_name={fc_name} shop_type={shop_type}"
   );
   let mut stmt = conn
@@ -572,7 +572,7 @@ pub fn get_shop_count_by_fc_and_type(
   let count: i64 = stmt
     .query_row(params![fc_name, shop_type], |row| row.get(0))
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
-  eprintln!("[DEBUG] get_shop_count_by_fc_and_type: result count={count}");
+  log::debug!("[DEBUG] get_shop_count_by_fc_and_type: result count={count}");
 
   let eligible_count = count as usize;
   let target_count = match task_type {

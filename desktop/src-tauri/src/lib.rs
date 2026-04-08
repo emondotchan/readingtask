@@ -6,18 +6,21 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  reading_task::init_logging();
+
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
-      eprintln!("[reading_task::tauri::setup][INFO] loading desktop runtime state");
+      log::info!(target: "reading_task::tauri::setup", "loading desktop runtime state");
       let runtime_paths = bootstrap::initialize(app)?;
       if let Some(db_path) = &runtime_paths.db_path {
-        eprintln!(
-          "[reading_task::tauri::setup][INFO] sqlite configured db_path={}",
+        log::info!(
+          target: "reading_task::tauri::setup",
+          "sqlite configured db_path={}",
           db_path.display()
         );
       } else {
-        eprintln!("[reading_task::tauri::setup][INFO] sqlite not configured yet");
+        log::info!(target: "reading_task::tauri::setup", "sqlite not configured yet");
       }
       app.manage(commands::RuntimeState::new(runtime_paths));
       app.manage(commands::TaskPauseRegistry::default());
