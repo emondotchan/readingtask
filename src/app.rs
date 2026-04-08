@@ -1,10 +1,8 @@
-use std::path::PathBuf;
-
 use anyhow::{Result, anyhow};
 use reading_task::{AppPaths, TaskItemOutcome, TaskRunRequest, TaskRunSummary, run_task};
 
 pub async fn run(request: TaskRunRequest) -> Result<()> {
-  let app_paths = AppPaths::new(data_dir());
+  let app_paths = AppPaths::new();
   let summary = run_task(&app_paths, request)
     .await
     .map_err(|error| anyhow!("{error}"))?;
@@ -52,8 +50,4 @@ fn render_final_status(summary: &TaskRunSummary) {
     summary.started_at,
     summary.finished_at
   );
-}
-
-fn data_dir() -> PathBuf {
-  PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config")
 }

@@ -1,20 +1,24 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rand::Rng;
 use rand::seq::SliceRandom;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::error::AppError;
 use super::loader::load_runtime_data;
 use super::model::{
-  AppPaths, MonthlyTask, OpenIdRecord, QuickRunArchiveResult, QuickRunArchiveStatus, ShopRecord,
-  TaskItemOutcome, TaskItemResult, TaskProgress, TaskRunRequest, TaskRunSummary,
+  AppPaths, DailyProgress, MonthlyTask, MonthlyTaskPlanPreview, OpenIdRecord,
+  QuickRunArchiveResult, QuickRunArchiveStatus, SHOP_TYPE_AVENE, SHOP_TYPE_AVENE_KLORANE,
+  SHOP_TYPE_KLORANE, ShopRecord, TaskItemOutcome, TaskItemResult, TaskProgress, TaskRunRequest,
+  TaskRunSummary,
 };
 
 const SUBMIT_READ_LOG_URL: &str =
   "https://e-learning.eau-thermale-avene.cn/Common/QCSCoursePage.aspx/SubmitReadLog";
+const MIN_DAILY_TARGET: usize = 15;
+const MAX_DAILY_TARGET: usize = 25;
 
 #[derive(Debug, Serialize)]
 struct SubmitReadLogBody<'a> {
@@ -32,11 +36,59 @@ struct SubmitReadLogBody<'a> {
   shop_code: &'a str,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SubmitReadLogResponseEnvelope {
+  Wrapped { d: String },
+  Direct(SubmitReadLogPayload),
+}
+
+#[derive(Debug, Deserialize)]
+struct SubmitReadLogPayload {
+  err: i32,
+  #[serde(rename = "RtnMsg")]
+  rtn_msg: String,
+  #[serde(rename = "ReadID")]
+  read_id: Option<String>,
+}
+
 #[derive(Debug)]
 struct PreparedRun {
   requested_count: usize,
   selected_open_ids: Vec<String>,
   selected_shops: Vec<ShopRecord>,
+}
+
+pub fn preview_monthly_task_plan(
+  paths: &AppPaths,
+  task: &MonthlyTask,
+) -> Result<MonthlyTaskPlanPreview, AppError> {
+  let runtime_data = load_runtime_data(paths)?;
+  build_monthly_task_plan(task, runtime_data.shops)
+}
+
+pub fn create_monthly_task_with_plan(
+  paths: &AppPaths,
+  task: &MonthlyTask,
+) -> Result<MonthlyTaskPlanPreview, AppError> {
+  let plan = preview_monthly_task_plan(paths, task)?;
+  let planned_task = MonthlyTask {
+    total_target: plan.total_target,
+    target_days: plan.target_days,
+    shopcodes: plan
+      .daily_plans
+      .iter()
+      .flat_map(|daily_plan| daily_plan.shopcodes.iter().cloned())
+      .collect(),
+    ..task.clone()
+  };
+
+  super::db::add_monthly_task(paths, &planned_task)?;
+  for daily_plan in &plan.daily_plans {
+    super::db::save_daily_progress(paths, daily_plan)?;
+  }
+
+  Ok(plan)
 }
 
 pub async fn run_task(
@@ -50,10 +102,24 @@ pub async fn run_daily_task_with_progress<F>(
   paths: &AppPaths,
   task_id: &str,
   date: &str,
-  mut on_progress: F,
+  on_progress: F,
 ) -> Result<TaskRunSummary, AppError>
 where
   F: FnMut(TaskProgress),
+{
+  run_daily_task_with_progress_controlled(paths, task_id, date, on_progress, || false).await
+}
+
+pub async fn run_daily_task_with_progress_controlled<F, C>(
+  paths: &AppPaths,
+  task_id: &str,
+  date: &str,
+  mut on_progress: F,
+  should_pause: C,
+) -> Result<TaskRunSummary, AppError>
+where
+  F: FnMut(TaskProgress),
+  C: Fn() -> bool,
 {
   let tasks = super::db::get_all_monthly_tasks(paths)?;
   let task = tasks
@@ -73,36 +139,27 @@ where
     return Err(AppError::ExecutionError("该月度任务已全部完成".to_string()));
   }
 
-  let mut today_progress = all_progress
-    .iter()
-    .find(|p| p.date == date)
-    .cloned()
-    .unwrap_or_else(|| {
-      let remaining_count = task.total_target.saturating_sub(total_completed);
-      let past_days = all_progress.iter().filter(|p| p.date != date).count();
-      let remaining_days = task.target_days.saturating_sub(past_days).max(1);
-      let target_count = (remaining_count as f64 / remaining_days as f64).ceil() as usize;
-      super::model::DailyProgress {
-        task_id: task_id.to_string(),
-        date: date.to_string(),
-        target_count,
-        completed_count: 0,
-      }
-    });
+  let mut today_progress = ensure_daily_progress(paths, &task, date)?;
 
   super::db::save_daily_progress(paths, &today_progress)?;
 
+  if today_progress.is_locked {
+    return Err(AppError::ExecutionError(
+      "今日任务已经执行完成，请明天再执行".to_string(),
+    ));
+  }
+
   if today_progress.completed_count >= today_progress.target_count {
-    return Err(AppError::ExecutionError("今日任务已经完成".to_string()));
+    today_progress.is_locked = true;
+    super::db::save_daily_progress(paths, &today_progress)?;
+    return Err(AppError::ExecutionError(
+      "今日任务已经完成，请明天再执行".to_string(),
+    ));
   }
 
   let to_run = today_progress.target_count - today_progress.completed_count;
 
-  let valid_shops = runtime_data
-    .shops
-    .into_iter()
-    .filter(|s| s.fc.as_deref() == Some(task.fc_name.as_str()))
-    .collect::<Vec<_>>();
+  let valid_shops = filter_task_shops(runtime_data.shops, &task.fc_name, &task.task_type);
   if valid_shops.is_empty() {
     return Err(AppError::ResourceUnavailableError(format!(
       "未找到 FC={} 对应的门店",
@@ -110,11 +167,20 @@ where
     )));
   }
 
-  let used_shop_codes = super::db::get_task_results(paths, task_id)?
-    .into_iter()
-    .map(|item| item.shop_code)
-    .collect::<HashSet<_>>();
-  let selected_shops = select_unused_monthly_shops(valid_shops, &used_shop_codes, to_run)?;
+  let selected_shops = if today_progress.shopcodes.is_empty() {
+    let used_shop_codes = super::db::get_task_results(paths, task_id)?
+      .into_iter()
+      .map(|item| item.shop_code)
+      .collect::<HashSet<_>>();
+    select_unused_monthly_shops(
+      valid_shops,
+      &used_shop_codes,
+      to_run,
+      task.shopcodes.is_empty(),
+    )?
+  } else {
+    select_planned_shops(valid_shops, &today_progress.shopcodes)?
+  };
   let month_prefix = task_month_prefix_from_date(date)?;
   let used_open_ids = super::db::get_used_open_ids_for_month(paths, &month_prefix)?;
   let selected_open_ids = select_manager_open_ids(
@@ -131,11 +197,15 @@ where
     .zip(selected_open_ids.iter())
     .enumerate()
   {
+    ensure_not_paused(&should_pause)?;
+
     // Sleep random 1-3 mins if not the first request
     if index > 0 {
       let sleep_secs = rand::thread_rng().gen_range(60..=180);
-      tokio::time::sleep(std::time::Duration::from_secs(sleep_secs)).await;
+      sleep_with_pause_check(sleep_secs, &should_pause).await?;
     }
+
+    ensure_not_paused(&should_pause)?;
 
     let body = SubmitReadLogBody {
       s_course_id: &task.s_course_id,
@@ -180,6 +250,9 @@ where
   let processed_count = items.len();
   let failure_count = processed_count.saturating_sub(success_count);
 
+  today_progress.is_locked = true;
+  super::db::save_daily_progress(paths, &today_progress)?;
+
   Ok(TaskRunSummary {
     requested_count: to_run,
     processed_count,
@@ -190,6 +263,29 @@ where
     items,
     archive_result: None,
   })
+}
+
+fn ensure_not_paused<C>(should_pause: &C) -> Result<(), AppError>
+where
+  C: Fn() -> bool,
+{
+  if should_pause() {
+    Err(AppError::Paused("任务已暂停".to_string()))
+  } else {
+    Ok(())
+  }
+}
+
+async fn sleep_with_pause_check<C>(seconds: u64, should_pause: &C) -> Result<(), AppError>
+where
+  C: Fn() -> bool,
+{
+  for _ in 0..seconds {
+    ensure_not_paused(should_pause)?;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+  }
+
+  ensure_not_paused(should_pause)
 }
 
 async fn execute_single_request(
@@ -210,19 +306,19 @@ async fn execute_single_request(
     Ok(response) => {
       let status = response.status().as_u16();
       match response.text().await {
-        Ok(text) => TaskItemResult {
-          index: index + 1,
-          open_id: open_id.to_string(),
-          shop_code: shop.shop_code.clone(),
-          province: shop.province.clone(),
-          city: shop.city.clone(),
-          http_status: Some(status),
-          response_text: Some(text),
-          error_message: None,
-          outcome: TaskItemOutcome::Success,
-        },
+        Ok(text) => build_task_item_result(
+          index,
+          open_id,
+          shop,
+          Some(status),
+          classify_submit_read_log_response(&text),
+        ),
         Err(error) => TaskItemResult {
           index: index + 1,
+          executed_date: None,
+          submit_err: None,
+          rtn_msg: None,
+          read_id: None,
           open_id: open_id.to_string(),
           shop_code: shop.shop_code.clone(),
           province: shop.province.clone(),
@@ -236,6 +332,10 @@ async fn execute_single_request(
     }
     Err(error) => TaskItemResult {
       index: index + 1,
+      executed_date: None,
+      submit_err: None,
+      rtn_msg: None,
+      read_id: None,
       open_id: open_id.to_string(),
       shop_code: shop.shop_code.clone(),
       province: shop.province.clone(),
@@ -295,19 +395,19 @@ where
       Ok(response) => {
         let status = response.status().as_u16();
         match response.text().await {
-          Ok(text) => TaskItemResult {
-            index: index + 1,
-            open_id: open_id.clone(),
-            shop_code: shop.shop_code.clone(),
-            province: shop.province.clone(),
-            city: shop.city.clone(),
-            http_status: Some(status),
-            response_text: Some(text),
-            error_message: None,
-            outcome: TaskItemOutcome::Success,
-          },
+          Ok(text) => build_task_item_result(
+            index,
+            open_id,
+            shop,
+            Some(status),
+            classify_submit_read_log_response(&text),
+          ),
           Err(error) => TaskItemResult {
             index: index + 1,
+            executed_date: None,
+            submit_err: None,
+            rtn_msg: None,
+            read_id: None,
             open_id: open_id.clone(),
             shop_code: shop.shop_code.clone(),
             province: shop.province.clone(),
@@ -321,6 +421,10 @@ where
       }
       Err(error) => TaskItemResult {
         index: index + 1,
+        executed_date: None,
+        submit_err: None,
+        rtn_msg: None,
+        read_id: None,
         open_id: open_id.clone(),
         shop_code: shop.shop_code.clone(),
         province: shop.province.clone(),
@@ -429,6 +533,84 @@ fn archive_quick_run_results_for_date(
   })
 }
 
+#[derive(Debug, Clone)]
+struct ClassifiedSubmitReadLogResponse {
+  response_text: String,
+  submit_err: Option<i32>,
+  rtn_msg: Option<String>,
+  read_id: Option<String>,
+  error_message: Option<String>,
+  outcome: TaskItemOutcome,
+}
+
+fn build_task_item_result(
+  index: usize,
+  open_id: &str,
+  shop: &ShopRecord,
+  http_status: Option<u16>,
+  classified: ClassifiedSubmitReadLogResponse,
+) -> TaskItemResult {
+  TaskItemResult {
+    index: index + 1,
+    executed_date: None,
+    submit_err: classified.submit_err,
+    rtn_msg: classified.rtn_msg,
+    read_id: classified.read_id,
+    open_id: open_id.to_string(),
+    shop_code: shop.shop_code.clone(),
+    province: shop.province.clone(),
+    city: shop.city.clone(),
+    http_status,
+    response_text: Some(classified.response_text),
+    error_message: classified.error_message,
+    outcome: classified.outcome,
+  }
+}
+
+fn classify_submit_read_log_response(text: &str) -> ClassifiedSubmitReadLogResponse {
+  if let Some(payload) = parse_submit_read_log_payload(text) {
+    let response_text = payload.rtn_msg.clone();
+    let error_message = if payload.err == 0 {
+      None
+    } else {
+      Some(response_text.clone())
+    };
+    let outcome = if payload.err == 0 {
+      TaskItemOutcome::Success
+    } else {
+      TaskItemOutcome::RequestError
+    };
+
+    return ClassifiedSubmitReadLogResponse {
+      response_text,
+      submit_err: Some(payload.err),
+      rtn_msg: Some(payload.rtn_msg),
+      read_id: payload.read_id,
+      error_message,
+      outcome,
+    };
+  }
+
+  ClassifiedSubmitReadLogResponse {
+    response_text: text.to_string(),
+    submit_err: None,
+    rtn_msg: Some(text.to_string()),
+    read_id: None,
+    error_message: None,
+    outcome: TaskItemOutcome::Success,
+  }
+}
+
+fn parse_submit_read_log_payload(text: &str) -> Option<SubmitReadLogPayload> {
+  let envelope = serde_json::from_str::<SubmitReadLogResponseEnvelope>(text).ok()?;
+  match envelope {
+    SubmitReadLogResponseEnvelope::Wrapped { d } => {
+      serde_json::from_str::<SubmitReadLogPayload>(&d).ok()
+    }
+    SubmitReadLogResponseEnvelope::Direct(payload) => Some(payload),
+  }
+}
+
 fn prepare_run(
   paths: &AppPaths,
   request: &TaskRunRequest,
@@ -437,6 +619,11 @@ fn prepare_run(
   validate_request(request)?;
   let runtime_data = load_runtime_data(paths)?;
   let selected_shops = select_shops(runtime_data.shops, request)?;
+  let requested_count = if request.shopcodes.is_empty() {
+    request.count
+  } else {
+    selected_shops.len()
+  };
   let run_date = run_date
     .map(ToOwned::to_owned)
     .unwrap_or_else(current_date_string);
@@ -446,11 +633,11 @@ fn prepare_run(
     runtime_data.open_ids,
     &request.s_manager_id,
     &used_open_ids,
-    request.count,
+    requested_count,
   )?;
 
   Ok(PreparedRun {
-    requested_count: request.count,
+    requested_count,
     selected_open_ids,
     selected_shops,
   })
@@ -470,16 +657,31 @@ fn select_shops(
   request: &TaskRunRequest,
 ) -> Result<Vec<ShopRecord>, AppError> {
   if !request.shopcodes.is_empty() {
-    let codes_set: HashSet<&str> = request.shopcodes.iter().map(String::as_str).collect();
-    let matched_shops = shops
-      .into_iter()
-      .filter(|shop| codes_set.contains(shop.shop_code.as_str()))
-      .collect::<Vec<_>>();
+    let requested_shopcodes = normalize_shopcodes(&request.shopcodes);
+    if requested_shopcodes.is_empty() {
+      return Err(AppError::ValidationError(
+        "至少提供一个有效的 shopcode".to_string(),
+      ));
+    }
 
-    if matched_shops.is_empty() {
+    let mut shops_by_code = shops
+      .into_iter()
+      .map(|shop| (shop.shop_code.clone(), shop))
+      .collect::<HashMap<_, _>>();
+    let mut matched_shops = Vec::with_capacity(requested_shopcodes.len());
+    let mut missing_shopcodes = Vec::new();
+
+    for shopcode in requested_shopcodes {
+      match shops_by_code.remove(&shopcode) {
+        Some(shop) => matched_shops.push(shop),
+        None => missing_shopcodes.push(shopcode),
+      }
+    }
+
+    if !missing_shopcodes.is_empty() {
       return Err(AppError::ResourceUnavailableError(format!(
-        "未在 shop.toml 中找到指定的门店代码: {:?}",
-        request.shopcodes
+        "未在 SQLite 门店数据中找到指定的门店代码: {:?}",
+        missing_shopcodes
       )));
     }
 
@@ -493,7 +695,7 @@ fn select_shops(
 
   if matched_shops.is_empty() {
     return Err(AppError::ResourceUnavailableError(format!(
-      "未在 shop.toml 中找到 FC={} 对应的门店",
+      "未在 SQLite 门店数据中找到 FC={} 对应的门店",
       request.fc
     )));
   }
@@ -509,10 +711,23 @@ fn select_shops(
   Ok(sample_shops(matched_shops, request.count))
 }
 
+fn normalize_shopcodes(shopcodes: &[String]) -> Vec<String> {
+  let mut seen = HashSet::new();
+
+  shopcodes
+    .iter()
+    .map(|shopcode| shopcode.trim())
+    .filter(|shopcode| !shopcode.is_empty())
+    .filter(|shopcode| seen.insert((*shopcode).to_string()))
+    .map(ToOwned::to_owned)
+    .collect()
+}
+
 fn select_unused_monthly_shops(
   shops: Vec<ShopRecord>,
   used_shop_codes: &HashSet<String>,
   count: usize,
+  randomize: bool,
 ) -> Result<Vec<ShopRecord>, AppError> {
   let available_shops = shops
     .into_iter()
@@ -527,7 +742,11 @@ fn select_unused_monthly_shops(
     )));
   }
 
-  Ok(sample_shops(available_shops, count))
+  if randomize {
+    Ok(sample_shops(available_shops, count))
+  } else {
+    Ok(available_shops.into_iter().take(count).collect())
+  }
 }
 
 fn select_manager_open_ids(
@@ -628,16 +847,212 @@ fn ensure_daily_progress(
   let all_progress = super::db::get_all_progress_for_task(paths, &task.id)?;
   let total_completed: usize = all_progress.iter().map(|p| p.completed_count).sum();
   let remaining_count = task.total_target.saturating_sub(total_completed);
-  let past_days = all_progress.iter().filter(|p| p.date != date).count();
-  let remaining_days = task.target_days.saturating_sub(past_days).max(1);
-  let target_count = (remaining_count as f64 / remaining_days as f64).ceil() as usize;
+  let target_count = random_daily_target(remaining_count);
 
-  Ok(super::model::DailyProgress {
+  Ok(DailyProgress {
     task_id: task.id.clone(),
     date: date.to_string(),
     target_count,
     completed_count: 0,
+    is_locked: false,
+    shopcodes: vec![],
   })
+}
+
+fn random_daily_target(remaining_count: usize) -> usize {
+  if remaining_count == 0 {
+    return 0;
+  }
+
+  rand::thread_rng()
+    .gen_range(MIN_DAILY_TARGET..=MAX_DAILY_TARGET)
+    .min(remaining_count)
+}
+
+pub fn estimate_target_days(total_target: usize) -> usize {
+  if total_target == 0 {
+    0
+  } else {
+    total_target.div_ceil(MAX_DAILY_TARGET)
+  }
+}
+
+fn build_monthly_task_plan(
+  task: &MonthlyTask,
+  shops: Vec<ShopRecord>,
+) -> Result<MonthlyTaskPlanPreview, AppError> {
+  let eligible_shops = filter_task_shops(shops, &task.fc_name, &task.task_type);
+  let eligible_shop_count = eligible_shops.len();
+  if eligible_shops.is_empty() {
+    return Err(AppError::ResourceUnavailableError(format!(
+      "未找到 FC={} 且任务类型={} 的可用门店",
+      task.fc_name, task.task_type
+    )));
+  }
+
+  let total_target = calculate_monthly_target(eligible_shops.len(), &task.task_type);
+  if total_target == 0 {
+    return Err(AppError::ValidationError(format!(
+      "FC={} 在任务类型={} 下没有可执行的月度目标",
+      task.fc_name, task.task_type
+    )));
+  }
+
+  let selected_shops = sample_shops(eligible_shops, total_target);
+  let daily_targets = build_daily_targets(total_target);
+  let start_date = extract_start_date(&task.created_at)?;
+  let mut offset_days = 0_usize;
+  let mut shop_offset = 0_usize;
+  let mut daily_plans = Vec::with_capacity(daily_targets.len());
+
+  for target_count in daily_targets {
+    let next_offset = shop_offset + target_count;
+    let shopcodes = selected_shops[shop_offset..next_offset]
+      .iter()
+      .map(|shop| shop.shop_code.clone())
+      .collect::<Vec<_>>();
+    daily_plans.push(DailyProgress {
+      task_id: task.id.clone(),
+      date: add_days_to_date(&start_date, offset_days as i64),
+      target_count,
+      completed_count: 0,
+      is_locked: false,
+      shopcodes,
+    });
+    shop_offset = next_offset;
+    offset_days += 1;
+  }
+
+  Ok(MonthlyTaskPlanPreview {
+    eligible_shop_count,
+    total_target,
+    target_days: daily_plans.len(),
+    daily_plans,
+  })
+}
+
+fn calculate_monthly_target(eligible_shop_count: usize, task_type: &str) -> usize {
+  if eligible_shop_count == 0 {
+    return 0;
+  }
+
+  let (min_target, max_target) = calculate_monthly_target_bounds(eligible_shop_count, task_type);
+
+  if min_target >= max_target {
+    min_target
+  } else {
+    rand::thread_rng().gen_range(min_target..=max_target)
+  }
+}
+
+fn calculate_monthly_target_bounds(eligible_shop_count: usize, task_type: &str) -> (usize, usize) {
+  let (min_coverage, max_coverage) = match task_type {
+    "Avene" => (75, 85),
+    "Klorane" => (85, 95),
+    _ => (100, 100),
+  };
+
+  let min_target = ((eligible_shop_count * min_coverage) + 99) / 100;
+  let max_target = ((eligible_shop_count * max_coverage) / 100)
+    .max(min_target)
+    .min(eligible_shop_count);
+
+  (min_target.min(eligible_shop_count), max_target)
+}
+
+fn filter_task_shops(shops: Vec<ShopRecord>, fc_name: &str, task_type: &str) -> Vec<ShopRecord> {
+  shops
+    .into_iter()
+    .filter(|shop| shop.fc.as_deref() == Some(fc_name))
+    .filter(|shop| task_type_matches_shop(task_type, shop.shop_type))
+    .collect()
+}
+
+fn task_type_matches_shop(task_type: &str, shop_type: u8) -> bool {
+  match task_type {
+    "Avene" => shop_type == SHOP_TYPE_AVENE || shop_type == SHOP_TYPE_AVENE_KLORANE,
+    "Klorane" => shop_type == SHOP_TYPE_KLORANE || shop_type == SHOP_TYPE_AVENE_KLORANE,
+    _ => true,
+  }
+}
+
+fn select_planned_shops(
+  shops: Vec<ShopRecord>,
+  planned_shopcodes: &[String],
+) -> Result<Vec<ShopRecord>, AppError> {
+  let mut shops_by_code = shops
+    .into_iter()
+    .map(|shop| (shop.shop_code.clone(), shop))
+    .collect::<HashMap<_, _>>();
+  let mut selected = Vec::with_capacity(planned_shopcodes.len());
+
+  for shopcode in planned_shopcodes {
+    let shop = shops_by_code.remove(shopcode).ok_or_else(|| {
+      AppError::ResourceUnavailableError(format!("计划门店不存在或不匹配任务类型: {shopcode}"))
+    })?;
+    selected.push(shop);
+  }
+
+  Ok(selected)
+}
+
+fn build_daily_targets(total_target: usize) -> Vec<usize> {
+  if total_target == 0 {
+    return Vec::new();
+  }
+
+  let mut rng = rand::thread_rng();
+  let mut remaining = total_target;
+  let mut daily_targets = Vec::new();
+
+  while remaining > MAX_DAILY_TARGET {
+    let next_target = rng
+      .gen_range(MIN_DAILY_TARGET..=MAX_DAILY_TARGET)
+      .min(remaining);
+    daily_targets.push(next_target);
+    remaining -= next_target;
+  }
+
+  if remaining > 0 {
+    daily_targets.push(remaining);
+  }
+
+  daily_targets
+}
+
+fn extract_start_date(created_at: &str) -> Result<String, AppError> {
+  created_at
+    .get(0..10)
+    .map(ToOwned::to_owned)
+    .ok_or_else(|| AppError::ValidationError(format!("无效 created_at: {created_at}")))
+}
+
+fn add_days_to_date(date: &str, delta_days: i64) -> String {
+  if let Some((year, month, day)) = parse_date_parts(date) {
+    let days = days_from_civil(year, month, day) + delta_days;
+    let (new_year, new_month, new_day) = civil_from_days(days);
+    return format!("{new_year:04}-{new_month:02}-{new_day:02}");
+  }
+
+  date.to_string()
+}
+
+fn parse_date_parts(date: &str) -> Option<(i32, u32, u32)> {
+  let year = date.get(0..4)?.parse().ok()?;
+  let month = date.get(5..7)?.parse().ok()?;
+  let day = date.get(8..10)?.parse().ok()?;
+  Some((year, month, day))
+}
+
+fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
+  let year = year - if month <= 2 { 1 } else { 0 };
+  let era = if year >= 0 { year } else { year - 399 } / 400;
+  let yoe = year - era * 400;
+  let month = month as i32;
+  let day = day as i32;
+  let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  (era * 146_097 + doe - 719_468) as i64
 }
 
 fn generate_random_string(len: usize) -> String {
@@ -691,350 +1106,4 @@ fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
   let m = mp + if mp < 10 { 3 } else { -9 };
   let year = y + if m <= 2 { 1 } else { 0 };
   (year as i32, m as u32, d as u32)
-}
-
-#[cfg(test)]
-mod tests {
-  use std::collections::HashSet;
-  use std::fs;
-
-  use tempfile::TempDir;
-
-  use super::*;
-  use crate::core::db;
-
-  #[test]
-  fn prepare_run_rejects_zero_count() {
-    let (_temp_dir, paths) =
-      create_config_dir(r#"openids = ["openid-a"]"#, SHOPS_TOML, PROVINCES_TOML);
-    seed_manager_open_ids(&paths);
-    let request = build_request(0, vec![]);
-
-    let error = prepare_run(&paths, &request, None).unwrap_err();
-    assert!(matches!(error, AppError::ValidationError(_)));
-  }
-
-  #[test]
-  fn prepare_run_reports_missing_open_ids_file() {
-    let temp_dir = TempDir::new().expect("create temp dir");
-    let config_dir = temp_dir.path().join("config");
-    fs::create_dir_all(&config_dir).expect("create config dir");
-    fs::write(config_dir.join("shop.toml"), SHOPS_TOML).expect("write shop.toml");
-    fs::write(config_dir.join("province.toml"), PROVINCES_TOML).expect("write province.toml");
-
-    let paths = AppPaths::new_with_db_path(config_dir, temp_dir.path().join(".reading.db"));
-    let request = build_request(1, vec![]);
-
-    let error = prepare_run(&paths, &request, None).unwrap_err();
-    assert!(matches!(error, AppError::ResourceUnavailableError(_)));
-  }
-
-  #[test]
-  fn prepare_run_reports_parse_error() {
-    let (_temp_dir, paths) =
-      create_config_dir(r#"openids = ["openid-a""#, SHOPS_TOML, PROVINCES_TOML);
-    let request = build_request(1, vec![]);
-
-    let error = prepare_run(&paths, &request, None).unwrap_err();
-    assert!(matches!(error, AppError::ConfigParseError { .. }));
-  }
-
-  #[test]
-  fn prepare_run_rejects_insufficient_shops_for_fc() {
-    let (_temp_dir, paths) = create_config_dir(
-      r#"openids = ["openid-a", "openid-b"]"#,
-      SHOPS_TOML,
-      PROVINCES_TOML,
-    );
-    seed_manager_open_ids(&paths);
-    let request = build_request(3, vec![]);
-
-    let error = prepare_run(&paths, &request, None).unwrap_err();
-    assert!(matches!(error, AppError::ResourceUnavailableError(_)));
-    assert!(error.to_string().contains("超过可用门店数量"));
-  }
-
-  #[test]
-  fn prepare_run_rejects_insufficient_open_ids() {
-    let (_temp_dir, paths) =
-      create_config_dir(r#"openids = ["openid-a"]"#, SHOPS_TOML, PROVINCES_TOML);
-    seed_manager_open_ids(&paths);
-    let request = build_request(2, vec![]);
-
-    let error = prepare_run(&paths, &request, None).unwrap_err();
-    assert!(matches!(error, AppError::ResourceUnavailableError(_)));
-    assert!(error.to_string().contains("剩余可用 OpenID 数量"));
-  }
-
-  #[test]
-  fn prepare_run_rejects_unmatched_shopcodes() {
-    let (_temp_dir, paths) = create_config_dir(
-      r#"openids = ["openid-a", "openid-b"]"#,
-      SHOPS_TOML,
-      PROVINCES_TOML,
-    );
-    seed_manager_open_ids(&paths);
-    let request = build_request(1, vec!["not-exist".to_string()]);
-
-    let error = prepare_run(&paths, &request, None).unwrap_err();
-    assert!(matches!(error, AppError::ResourceUnavailableError(_)));
-    assert!(
-      error
-        .to_string()
-        .contains("未在 shop.toml 中找到指定的门店代码")
-    );
-  }
-
-  #[test]
-  fn prepare_run_deduplicates_open_ids() {
-    let (_temp_dir, paths) = create_config_dir(
-      r#"openids = ["openid-a", "openid-a", "openid-b"]"#,
-      SHOPS_TOML,
-      PROVINCES_TOML,
-    );
-    seed_manager_open_ids(&paths);
-    let request = build_request(2, vec![]);
-
-    let prepared = prepare_run(&paths, &request, None).expect("prepare run");
-    assert_eq!(prepared.selected_open_ids.len(), 2);
-
-    let unique = prepared
-      .selected_open_ids
-      .iter()
-      .map(String::as_str)
-      .collect::<HashSet<_>>();
-    assert_eq!(unique.len(), 2);
-  }
-
-  #[test]
-  fn select_manager_open_ids_filters_by_manager() {
-    let selected = select_manager_open_ids(
-      vec![
-        OpenIdRecord {
-          manager_id: "manager-a".to_string(),
-          open_id: "openid-a".to_string(),
-        },
-        OpenIdRecord {
-          manager_id: "manager-b".to_string(),
-          open_id: "openid-b".to_string(),
-        },
-      ],
-      "manager-a",
-      &HashSet::new(),
-      1,
-    )
-    .expect("select manager open ids");
-
-    assert_eq!(selected, vec!["openid-a".to_string()]);
-  }
-
-  #[test]
-  fn prepare_run_excludes_open_ids_used_in_same_month() {
-    let (_temp_dir, paths) = create_config_dir(
-      r#"openids = ["openid-a", "openid-b"]"#,
-      SHOPS_TOML,
-      PROVINCES_TOML,
-    );
-    seed_manager_open_ids(&paths);
-    db::add_monthly_task(
-      &paths,
-      &MonthlyTask {
-        id: "2604:course:manager".to_string(),
-        fc_name: "fc-a".to_string(),
-        s_manager_id: "manager".to_string(),
-        s_course_id: "course".to_string(),
-        total_target: 300,
-        target_days: 20,
-        created_at: "2026-04-01T00:00:00Z".to_string(),
-      },
-    )
-    .expect("add monthly task");
-    db::save_task_result(
-      &paths,
-      "2604:course:manager",
-      &TaskItemResult {
-        index: 1,
-        open_id: "openid-a".to_string(),
-        shop_code: "100".to_string(),
-        province: "安徽".to_string(),
-        city: "安庆".to_string(),
-        http_status: Some(200),
-        response_text: Some("ok".to_string()),
-        error_message: None,
-        outcome: TaskItemOutcome::Success,
-      },
-    )
-    .expect("save task result");
-
-    let prepared =
-      prepare_run(&paths, &build_request(1, vec![]), Some("2026-04-07")).expect("prepare run");
-
-    assert_eq!(prepared.selected_open_ids, vec!["openid-b".to_string()]);
-  }
-
-  #[test]
-  fn archive_quick_run_results_appends_to_unique_monthly_task() {
-    let (_temp_dir, paths) =
-      create_config_dir(r#"openids = ["openid-a"]"#, SHOPS_TOML, PROVINCES_TOML);
-    seed_manager_open_ids(&paths);
-    db::init_db(&paths).expect("init db");
-    db::add_monthly_task(
-      &paths,
-      &MonthlyTask {
-        id: "2604:course:manager".to_string(),
-        fc_name: "fc-a".to_string(),
-        s_manager_id: "manager".to_string(),
-        s_course_id: "course".to_string(),
-        total_target: 300,
-        target_days: 20,
-        created_at: "2026-04-07T00:00:00Z".to_string(),
-      },
-    )
-    .expect("add monthly task");
-
-    let result = archive_quick_run_results_for_date(
-      &paths,
-      &build_request(1, vec![]),
-      &[TaskItemResult {
-        index: 1,
-        open_id: "openid-a".to_string(),
-        shop_code: "100".to_string(),
-        province: "安徽".to_string(),
-        city: "安庆".to_string(),
-        http_status: Some(200),
-        response_text: Some("ok".to_string()),
-        error_message: None,
-        outcome: TaskItemOutcome::Success,
-      }],
-      "2026-04-07",
-    )
-    .expect("archive results");
-
-    assert_eq!(result.status, QuickRunArchiveStatus::Archived);
-    assert_eq!(result.task_id.as_deref(), Some("2604:course:manager"));
-    assert_eq!(
-      db::get_task_results(&paths, "2604:course:manager")
-        .expect("get results")
-        .len(),
-      1
-    );
-
-    let progress = db::get_daily_progress(&paths, "2604:course:manager", "2026-04-07")
-      .expect("get daily progress")
-      .expect("progress should exist");
-    assert_eq!(progress.completed_count, 1);
-  }
-
-  #[test]
-  fn archive_quick_run_results_reports_duplicate_tasks() {
-    let (_temp_dir, paths) =
-      create_config_dir(r#"openids = ["openid-a"]"#, SHOPS_TOML, PROVINCES_TOML);
-    seed_manager_open_ids(&paths);
-    db::init_db(&paths).expect("init db");
-    for task_id in ["2604:course:manager-a", "2604:course:manager-b"] {
-      db::add_monthly_task(
-        &paths,
-        &MonthlyTask {
-          id: task_id.to_string(),
-          fc_name: "fc-a".to_string(),
-          s_manager_id: "manager".to_string(),
-          s_course_id: "course".to_string(),
-          total_target: 300,
-          target_days: 20,
-          created_at: "2026-04-07T00:00:00Z".to_string(),
-        },
-      )
-      .expect("add monthly task");
-    }
-
-    let result =
-      archive_quick_run_results_for_date(&paths, &build_request(1, vec![]), &[], "2026-04-07")
-        .expect("archive should not fail");
-
-    assert_eq!(result.status, QuickRunArchiveStatus::DuplicateTasks);
-    assert!(result.message.contains("重复月度任务"));
-  }
-
-  #[test]
-  fn select_unused_monthly_shops_excludes_used_shopcodes() {
-    let used_shop_codes = ["100".to_string()].into_iter().collect::<HashSet<_>>();
-    let shops = vec![
-      ShopRecord {
-        province: "安徽".to_string(),
-        city: "安庆".to_string(),
-        shop_code: "100".to_string(),
-        fc: Some("fc-a".to_string()),
-      },
-      ShopRecord {
-        province: "安徽".to_string(),
-        city: "蚌埠".to_string(),
-        shop_code: "101".to_string(),
-        fc: Some("fc-a".to_string()),
-      },
-    ];
-
-    let selected = select_unused_monthly_shops(shops, &used_shop_codes, 1).expect("select shops");
-
-    assert_eq!(selected.len(), 1);
-    assert_eq!(selected[0].shop_code, "101");
-  }
-
-  fn create_config_dir(open_ids: &str, shops: &str, provinces: &str) -> (TempDir, AppPaths) {
-    let temp_dir = TempDir::new().expect("create temp dir");
-    let config_dir = temp_dir.path().join("config");
-    let db_path = temp_dir.path().join(".reading.db");
-    fs::create_dir_all(&config_dir).expect("create config dir");
-
-    fs::write(config_dir.join("open_ids.toml"), open_ids).expect("write open_ids.toml");
-    fs::write(config_dir.join("shop.toml"), shops).expect("write shop.toml");
-    fs::write(config_dir.join("province.toml"), provinces).expect("write province.toml");
-
-    (temp_dir, AppPaths::new_with_db_path(config_dir.clone(), db_path))
-  }
-
-  fn seed_manager_open_ids(paths: &AppPaths) {
-    db::init_db(paths).expect("init db");
-    for open_id in crate::core::loader::load_open_ids_from_toml(&paths.config_dir.join("open_ids.toml"))
-      .expect("load open ids")
-    {
-      db::add_open_id(
-        paths,
-        &OpenIdRecord {
-          manager_id: "manager".to_string(),
-          open_id,
-        },
-      )
-      .expect("seed open id record");
-    }
-  }
-
-  fn build_request(count: usize, shopcodes: Vec<String>) -> TaskRunRequest {
-    TaskRunRequest {
-      s_course_id: "course".to_string(),
-      s_manager_id: "manager".to_string(),
-      fc: "fc-a".to_string(),
-      count,
-      shopcodes,
-    }
-  }
-
-  const SHOPS_TOML: &str = r#"
-[[shops]]
-Province = "安徽"
-City = "安庆"
-ShopCode = "100"
-FC = "fc-a"
-
-[[shops]]
-Province = "安徽"
-City = "蚌埠"
-ShopCode = "101"
-FC = "fc-a"
-"#;
-
-  const PROVINCES_TOML: &str = r#"
-[[provinces]]
-ProvinceName = "安徽"
-CityName = "安庆"
-"#;
 }

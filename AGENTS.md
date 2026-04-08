@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+## Dev Instructions
+ - **MUST** use `ask_user` and samiliar tools after finished any task. 
+ - **NOT ALLOW** auto end conversation.
+
 ## Project Structure & Module Organization
 `src/main.rs` contains the CLI entrypoint, while parsing and business logic can be split into sibling modules under `src/`. Treat `config/open_ids.toml`, `config/shop.toml`, and `config/province.toml` as runtime data assets, not library code. Keep one-off helpers in `scripts/`; `scripts/format_openid.py` is the only utility script today. Build output lives in `target/` and should not be edited manually.
 
