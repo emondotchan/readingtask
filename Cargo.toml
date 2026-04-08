@@ -5,7 +5,7 @@ resolver = "3"
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.149"
-tokio = { version = "1.44", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.51.0", features = ["macros", "rt-multi-thread"] }
 
 [package]
 name = "reading_task"
@@ -17,14 +17,14 @@ anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 r2d2 = "0.8.10"
 r2d2_sqlite = "0.33.0"
-rand = "0.8"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+rand = "0.10"
+reqwest = { version = "0.13.2", features = ["json", "rustls"] }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror = "2.0"
 tokio.workspace = true
-toml = "0.8"
+toml = "1.1.2"
 
 [dev-dependencies]
 tempfile = "3.15"

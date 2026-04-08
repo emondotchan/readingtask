@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rand::Rng;
+use rand::RngExt;
 use rand::seq::SliceRandom;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
@@ -201,7 +201,7 @@ where
 
     // Sleep random 1-3 mins if not the first request
     if index > 0 {
-      let sleep_secs = rand::thread_rng().gen_range(60..=180);
+      let sleep_secs = rand::rng().random_range(60..=180);
       sleep_with_pause_check(sleep_secs, &should_pause).await?;
     }
 
@@ -217,7 +217,7 @@ where
     };
 
     let uid = generate_random_string(6);
-    let code_len = rand::thread_rng().gen_range(30..=40);
+    let code_len = rand::rng().random_range(30..=40);
     let code = generate_random_string(code_len);
     let referer = format!(
       "https://e-learning.eau-thermale-avene.cn/Common/QCSCoursePage.aspx?CourseID={}&UID={}&code={}&state=STATE",
@@ -378,7 +378,7 @@ where
     };
 
     let uid = generate_random_string(6);
-    let code_len = rand::thread_rng().gen_range(30..=40);
+    let code_len = rand::rng().random_range(30..=40);
     let code = generate_random_string(code_len);
     let referer = format!(
       "https://e-learning.eau-thermale-avene.cn/Common/QCSCoursePage.aspx?CourseID={}&UID={}&code={}&state=STATE",
@@ -782,13 +782,13 @@ fn select_manager_open_ids(
 }
 
 fn sample_open_ids(mut open_ids: Vec<String>, count: usize) -> Vec<String> {
-  let mut rng = rand::thread_rng();
+  let mut rng = rand::rng();
   open_ids.shuffle(&mut rng);
   open_ids.into_iter().take(count).collect()
 }
 
 fn sample_shops(mut shops: Vec<ShopRecord>, count: usize) -> Vec<ShopRecord> {
-  let mut rng = rand::thread_rng();
+  let mut rng = rand::rng();
   shops.shuffle(&mut rng);
   shops.into_iter().take(count).collect()
 }
@@ -864,8 +864,8 @@ fn random_daily_target(remaining_count: usize) -> usize {
     return 0;
   }
 
-  rand::thread_rng()
-    .gen_range(MIN_DAILY_TARGET..=MAX_DAILY_TARGET)
+  rand::rng()
+    .random_range(MIN_DAILY_TARGET..=MAX_DAILY_TARGET)
     .min(remaining_count)
 }
 
@@ -941,7 +941,7 @@ fn calculate_monthly_target(eligible_shop_count: usize, task_type: &str) -> usiz
   if min_target >= max_target {
     min_target
   } else {
-    rand::thread_rng().gen_range(min_target..=max_target)
+    rand::rng().random_range(min_target..=max_target)
   }
 }
 
@@ -1001,13 +1001,13 @@ fn build_daily_targets(total_target: usize) -> Vec<usize> {
     return Vec::new();
   }
 
-  let mut rng = rand::thread_rng();
+  let mut rng = rand::rng();
   let mut remaining = total_target;
   let mut daily_targets = Vec::new();
 
   while remaining > MAX_DAILY_TARGET {
     let next_target = rng
-      .gen_range(MIN_DAILY_TARGET..=MAX_DAILY_TARGET)
+      .random_range(MIN_DAILY_TARGET..=MAX_DAILY_TARGET)
       .min(remaining);
     daily_targets.push(next_target);
     remaining -= next_target;
@@ -1057,10 +1057,10 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
 
 fn generate_random_string(len: usize) -> String {
   const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let mut rng = rand::thread_rng();
+  let mut rng = rand::rng();
   (0..len)
     .map(|_| {
-      let idx = rng.gen_range(0..CHARSET.len());
+      let idx = rng.random_range(0..CHARSET.len());
       CHARSET[idx] as char
     })
     .collect()
