@@ -3,7 +3,7 @@ name = "reading_task_desktop"
 version = "0.1.0"
 description = "Desktop shell for reading_task"
 authors = ["reading_task"]
-edition = "2021"
+edition = "2024"
 
 [lib]
 name = "reading_task_desktop_lib"
@@ -17,6 +17,6 @@ log.workspace = true
 reading_task = { path = "../.." }
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2.0.0", features = [] }
+tauri = { version = "2.0.0", features = ["tray-icon"] }
 tauri-plugin-dialog = "2.0.0"
 tokio.workspace = true

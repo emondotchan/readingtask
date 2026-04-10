@@ -71,7 +71,11 @@ fn load_sqlite_path(
 }
 
 fn bundled_db_path(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
-  Ok(app.path().resolve(BUNDLED_DB_FILE, BaseDirectory::Resource)?)
+  Ok(
+    app
+      .path()
+      .resolve(BUNDLED_DB_FILE, BaseDirectory::Resource)?,
+  )
 }
 
 fn copy_bundled_db_if_needed(

@@ -99,7 +99,9 @@ fn normalize_sqlite_path(path: &str) -> Result<PathBuf, CommandError> {
   };
 
   if db_path.is_dir() {
-    return Err(validation_error("SQLite 存储文件路径必须是文件，不能是目录"));
+    return Err(validation_error(
+      "SQLite 存储文件路径必须是文件，不能是目录",
+    ));
   }
 
   if let Some(parent) = db_path.parent() {
@@ -331,7 +333,11 @@ pub async fn get_fcs(app: tauri::AppHandle) -> Result<Vec<FcRecord>, CommandErro
     log_command(Level::Error, "get_fcs", error.to_string());
     CommandError::from(error)
   })?;
-  log_command(Level::Info, "get_fcs", format!("loaded {} fc records", fcs.len()));
+  log_command(
+    Level::Info,
+    "get_fcs",
+    format!("loaded {} fc records", fcs.len()),
+  );
   Ok(fcs)
 }
 
@@ -356,7 +362,11 @@ pub async fn get_shop_count(
   task_type: String,
 ) -> Result<usize, CommandError> {
   let db = resolve_db(&app)?;
-  log_command(Level::Info, "get_shop_count", format!("fc_name={fc_name} task_type={task_type}"));
+  log_command(
+    Level::Info,
+    "get_shop_count",
+    format!("fc_name={fc_name} task_type={task_type}"),
+  );
   let count = reading_task::get_shop_count_by_fc_and_type(&db, &fc_name, &task_type)
     .map_err(CommandError::from)?;
   log_command(Level::Info, "get_shop_count", format!("count={count}"));
@@ -417,7 +427,8 @@ pub async fn get_daily_progress(
   date: String,
 ) -> Result<Option<reading_task::DailyProgress>, CommandError> {
   let db = resolve_db(&app)?;
-  let progress = reading_task::get_daily_progress(&db, &task_id, &date).map_err(CommandError::from)?;
+  let progress =
+    reading_task::get_daily_progress(&db, &task_id, &date).map_err(CommandError::from)?;
   Ok(progress)
 }
 
