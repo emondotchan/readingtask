@@ -17,6 +17,6 @@ log.workspace = true
 reading_task = { path = "../.." }
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2.0.0", features = ["tray-icon"] }
+tauri = { version = "2.0.0", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2.0.0"
 tokio.workspace = true

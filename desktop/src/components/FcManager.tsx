@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type FormEvent } from "react";
 import { Trash2Icon, PlusIcon, PencilIcon, ChevronLeftIcon, ChevronRightIcon, SearchIcon } from "lucide-react";
 import {
   Dialog,
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getFcs, addOrUpdateFc, deleteFc, type FcRecord } from "@/api/commands";
 
 const PAGE_SIZE = 50;
@@ -17,8 +18,15 @@ const PAGE_SIZE = 50;
 export function FcManager({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [fcs, setFcs] = useState<FcRecord[]>([]);
   const [formData, setFormData] = useState<FcRecord>({ name: "", manager_id: "" });
+  const [editingName, setEditingName] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const resetForm = () => {
+    setFormData({ name: "", manager_id: "" });
+    setEditingName(null);
+  };
 
   const loadData = async () => {
     try {
@@ -34,6 +42,8 @@ export function FcManager({ open, onOpenChange }: { open: boolean; onOpenChange:
       loadData();
       setCurrentPage(1);
       setSearchTerm("");
+      setFeedback(null);
+      resetForm();
     }
   }, [open]);
 
@@ -54,21 +64,38 @@ export function FcManager({ open, onOpenChange }: { open: boolean; onOpenChange:
     }
   }, [filteredFcs.length, currentPage, totalPages]);
 
-  const handleSave = async () => {
-    if (!formData.name.trim() || !formData.manager_id.trim()) return;
+  const handleSave = async (event?: FormEvent) => {
+    event?.preventDefault();
+
+    if (!formData.name.trim() || !formData.manager_id.trim()) {
+      setFeedback("请先填写 FC 名称和 Manager ID。");
+      return;
+    }
+
     try {
-      await addOrUpdateFc(formData);
-      setFormData({ name: "", manager_id: "" });
-      loadData();
+      await addOrUpdateFc({
+        fc: {
+          name: formData.name.trim(),
+          manager_id: formData.manager_id.trim(),
+        },
+        previous_name: editingName,
+      });
+      resetForm();
+      setFeedback(editingName ? "FC 经理已更新" : "FC 经理已保存");
+      await loadData();
     } catch (e) {
       console.error(e);
+      setFeedback(e instanceof Error ? e.message : String(e));
     }
   };
 
   const handleDelete = async (name: string) => {
     try {
       await deleteFc(name);
-      loadData();
+      if (editingName === name) {
+        resetForm();
+      }
+      await loadData();
     } catch (e) {
       console.error(e);
     }
@@ -79,6 +106,7 @@ export function FcManager({ open, onOpenChange }: { open: boolean; onOpenChange:
       name: fc.name,
       manager_id: fc.manager_id,
     });
+    setEditingName(fc.name);
   };
 
   const currentFcs = filteredFcs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -91,11 +119,39 @@ export function FcManager({ open, onOpenChange }: { open: boolean; onOpenChange:
         </DialogHeader>
         
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-2">
-            <Input placeholder="姓名 (如: 周凡琪)" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
-            <Input placeholder="Manager ID" value={formData.manager_id} onChange={(e) => setFormData({ ...formData, manager_id: e.target.value })} />
-            <Button onClick={handleSave}><PlusIcon className="w-4 h-4 mr-2" />保存</Button>
-          </div>
+          {feedback && (
+            <Alert>
+              <AlertTitle>提示</AlertTitle>
+              <AlertDescription>{feedback}</AlertDescription>
+            </Alert>
+          )}
+
+          <form className="grid grid-cols-3 gap-2" onSubmit={handleSave}>
+            <Input
+              placeholder="姓名 (如: 周凡琪)"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            />
+            <Input
+              placeholder="Manager ID"
+              value={formData.manager_id}
+              onChange={(e) => setFormData({ ...formData, manager_id: e.target.value })}
+            />
+            <div className="flex gap-2">
+              <Button type="submit" className="flex-1">
+                {editingName ? <PencilIcon className="w-4 h-4 mr-2" /> : <PlusIcon className="w-4 h-4 mr-2" />}
+                {editingName ? "更新" : "保存"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={resetForm}
+                disabled={!formData.name && !formData.manager_id && !editingName}
+              >
+                取消
+              </Button>
+            </div>
+          </form>
 
           <div className="relative">
             <SearchIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />

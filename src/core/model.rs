@@ -12,7 +12,9 @@ impl AppPaths {
   }
 
   pub fn new_with_db_path(db_path: impl Into<std::path::PathBuf>) -> Self {
-    Self { db_path: db_path.into() }
+    Self {
+      db_path: db_path.into(),
+    }
   }
 }
 

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   PlusIcon,
   Trash2Icon,
   PlayIcon,
+  SquareIcon,
   ActivityIcon,
   EyeIcon,
   CheckCircle2Icon,
@@ -109,11 +110,13 @@ export default function MonthlyPlanManager({
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const [selectedTask, setSelectedTask] = useState<MonthlyTask | null>(null);
-  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [filterMonth, setFilterMonth] = useState(getCurrentMonth());
   const [fcFilter, setFcFilter] = useState("all");
   const [courseIdFilter, setCourseIdFilter] = useState("");
+
+  const [isStartingAll, setIsStartingAll] = useState(false);
+  const startAllAbortController = useRef<AbortController | null>(null);
 
   const { runtimeStatus, runtimeReady, runtimeError, getTaskRun, executeDaily, pauseDaily } =
     currentRun;
@@ -197,7 +200,11 @@ export default function MonthlyPlanManager({
           task.id,
           new Set(
             successResults
-              .map((item) => item.executed_date)
+              .map((item) => {
+                const dt = item.executed_date;
+                if (!dt) return null;
+                return dt.split(" ")[0]; // normalize to YYYY-MM-DD
+              })
               .filter((value): value is string => Boolean(value)),
           ).size,
         ] as const);
@@ -353,140 +360,216 @@ export default function MonthlyPlanManager({
     }
   };
 
+  const handleStartAll = async () => {
+    if (startAllAbortController.current) return;
+    startAllAbortController.current = new AbortController();
+    const signal = startAllAbortController.current.signal;
+    setIsStartingAll(true);
+
+    const todayDate = getTodayDate();
+    const tasksToRun = filteredTasks.filter(task => {
+      const progress = progressMap[task.id];
+      if (progress?.is_locked) return false;
+      if (progress && progress.completed_count >= progress.target_count) return false;
+      const taskRun = getTaskRun(task.id);
+      if (taskRun?.runState === "running") return false;
+      return true;
+    });
+
+    for (let i = 0; i < tasksToRun.length; i++) {
+      if (signal.aborted) break;
+      const task = tasksToRun[i];
+
+      executeDaily(task.id, todayDate).catch(console.error);
+
+      if (i < tasksToRun.length - 1) {
+        // 3 to 5 minutes (in ms)
+        const waitMs = (Math.floor(Math.random() * (5 - 3 + 1)) + 3) * 60 * 1000;
+        
+        await new Promise<void>(resolve => {
+          const timeout = setTimeout(resolve, waitMs);
+          signal.addEventListener("abort", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+      }
+    }
+
+    setIsStartingAll(false);
+    startAllAbortController.current = null;
+  };
+
+  const handleCancelStartAll = () => {
+    if (startAllAbortController.current) {
+      startAllAbortController.current.abort();
+      startAllAbortController.current = null;
+      setIsStartingAll(false);
+    }
+  };
+
   const handleShowStatus = (task: MonthlyTask) => {
     setSelectedTask(task);
-    setStatusDialogOpen(true);
   };
 
   const today = getTodayDate();
 
   return (
     <div className="flex w-full max-w-6xl mx-auto flex-col gap-6">
-      <Card className="min-h-[400px] overflow-hidden border-border shadow-sm transition-all hover:border-primary/30">
-        <CardHeader className="border-b border-border pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <ActivityIcon className="size-4 text-emerald-500" />
-              <CardTitle className="text-lg font-semibold">
-                月度计划
-              </CardTitle>
-              <Badge variant="secondary" className="font-mono">
-                {filteredTasks.length}
-              </Badge>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                className="h-8 shadow-sm"
-                onClick={() => setCreateDialogOpen(true)}
-              >
-                <PlusIcon className="mr-1 size-3.5" />
-                新建计划
-              </Button>
-              <Select value={fcFilter} onValueChange={setFcFilter}>
-                <SelectTrigger className="h-8 w-[140px] border-border bg-background/70 text-xs">
-                  <SelectValue placeholder="筛选 FC" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部 FC</SelectItem>
-                  {Array.from(new Set(tasks.map((task) => task.fc_name))).sort().map((fcName) => (
-                    <SelectItem key={fcName} value={fcName} className="text-xs">
-                      {fcName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                value={courseIdFilter}
-                onChange={(e) => setCourseIdFilter(e.target.value)}
-                placeholder="筛选课程 ID"
-                className="h-8 w-[150px] bg-background/70 text-xs"
-              />
-              <Select value={filterMonth} onValueChange={setFilterMonth}>
-                <SelectTrigger className="h-8 w-[140px] border-border bg-background/70 text-xs">
-                  <SelectValue placeholder="筛选月份" />
-                </SelectTrigger>
-                <SelectContent>
-                  {monthOptions.map(
-                    (opt: { label: string; value: string }) => (
-                      <SelectItem
-                        key={opt.value}
-                        value={opt.value}
-                        className="text-xs"
-                      >
-                        {opt.label}
-                      </SelectItem>
-                    ),
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          {loadError && (
-            <Alert className="mt-3">
-              <AlertTitle>数据加载异常</AlertTitle>
-              <AlertDescription>{loadError}</AlertDescription>
-            </Alert>
-          )}
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="max-h-[640px] overflow-auto">
-            <Table>
-            <TableHeader>
-              <TableRow className="text-muted-foreground hover:bg-transparent">
-                <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
-                  FC 经理
-                </TableHead>
-                <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
-                  课程 ID
-                </TableHead>
-                <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
-                  今日进度
-                </TableHead>
-                <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
-                  任务类型
-                </TableHead>
-                <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
-                  累计完成
-                </TableHead>
-                <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
-                  月度总目标
-                </TableHead>
-                <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
-                  已完成天数
-                </TableHead>
-                <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
-                  状态
-                </TableHead>
-                <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider w-[220px] shadow-[0_1px_0_0_var(--color-border)]">
-                  操作
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredTasks.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={9}
-                    className="h-32 text-center text-muted-foreground"
+      {selectedTask ? (
+        <TaskStatusDialog
+          task={selectedTask}
+          onBack={() => setSelectedTask(null)}
+          currentRun={getTaskRun(selectedTask.id) ?? undefined}
+        />
+      ) : (
+        <Card className="min-h-[400px] overflow-hidden border-border shadow-sm transition-all hover:border-primary/30">
+          <CardHeader className="border-b border-border pb-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <ActivityIcon className="size-4 text-emerald-500" />
+                <CardTitle className="text-lg font-semibold">
+                  月度计划
+                </CardTitle>
+                <Badge variant="secondary" className="font-mono">
+                  {filteredTasks.length}
+                </Badge>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {isStartingAll ? (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="h-8 shadow-sm"
+                    onClick={handleCancelStartAll}
                   >
-                    {filterMonth} 暂无计划任务
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredTasks.map((task: MonthlyTask) => {
-                  const prog = progressMap[task.id];
-                  const taskRun = getTaskRun(task.id);
-                  const isCompletedToday = Boolean(
-                    prog && (prog.is_locked || prog.completed_count >= prog.target_count),
-                  );
-                  const todayTarget = prog ? prog.target_count : "-";
-                  const todayCompleted = prog ? prog.completed_count : 0;
-                  const successCount = successCountMap[task.id] ?? 0;
-                  const completedDays = completedDaysMap[task.id] ?? 0;
-                  const isRunning = taskRun?.runState === "running";
-                  const isPaused = taskRun?.runState === "paused";
-                  const isError = taskRun?.runState === "error";
+                    <SquareIcon className="mr-1 size-3.5" />
+                    停止一键执行
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    className="h-8 shadow-sm"
+                    onClick={handleStartAll}
+                    disabled={!runtimeReady || !!runtimeError}
+                  >
+                    <PlayIcon className="mr-1 size-3.5" />
+                    一键开始
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shadow-sm"
+                  onClick={() => setCreateDialogOpen(true)}
+                >
+                  <PlusIcon className="mr-1 size-3.5" />
+                  新建计划
+                </Button>
+                <Select value={fcFilter} onValueChange={setFcFilter}>
+                  <SelectTrigger className="h-8 w-[140px] border-border bg-background/70 text-xs">
+                    <SelectValue placeholder="筛选 FC" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部 FC</SelectItem>
+                    {Array.from(new Set(tasks.map((task) => task.fc_name))).sort().map((fcName) => (
+                      <SelectItem key={fcName} value={fcName} className="text-xs">
+                        {fcName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={courseIdFilter}
+                  onChange={(e) => setCourseIdFilter(e.target.value)}
+                  placeholder="筛选课程 ID"
+                  className="h-8 w-[150px] bg-background/70 text-xs"
+                />
+                <Select value={filterMonth} onValueChange={setFilterMonth}>
+                  <SelectTrigger className="h-8 w-[140px] border-border bg-background/70 text-xs">
+                    <SelectValue placeholder="筛选月份" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {monthOptions.map(
+                      (opt: { label: string; value: string }) => (
+                        <SelectItem
+                          key={opt.value}
+                          value={opt.value}
+                          className="text-xs"
+                        >
+                          {opt.label}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {loadError && (
+              <Alert className="mt-3">
+                <AlertTitle>数据加载异常</AlertTitle>
+                <AlertDescription>{loadError}</AlertDescription>
+              </Alert>
+            )}
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="max-h-[640px] overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="text-muted-foreground hover:bg-transparent">
+                    <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
+                      FC 经理
+                    </TableHead>
+                    <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
+                      课程 ID
+                    </TableHead>
+                    <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
+                      今日进度
+                    </TableHead>
+                    <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
+                      任务类型
+                    </TableHead>
+                    <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
+                      累计完成
+                    </TableHead>
+                    <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
+                      月度总目标
+                    </TableHead>
+                    <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
+                      已完成天数
+                    </TableHead>
+                    <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
+                      状态
+                    </TableHead>
+                    <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider w-[220px] shadow-[0_1px_0_0_var(--color-border)]">
+                      操作
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredTasks.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={9}
+                        className="h-32 text-center text-muted-foreground"
+                      >
+                        {filterMonth} 暂无计划任务
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredTasks.map((task: MonthlyTask) => {
+                      const prog = progressMap[task.id];
+                      const taskRun = getTaskRun(task.id);
+                      const isCompletedToday = Boolean(
+                        prog && (prog.is_locked || prog.completed_count >= prog.target_count),
+                      );
+                      const todayTarget = prog ? prog.target_count : "-";
+                      const todayCompleted = prog ? prog.completed_count : 0;
+                      const successCount = successCountMap[task.id] ?? 0;
+                      const completedDays = completedDaysMap[task.id] ?? 0;
+                      const isRunning = taskRun?.runState === "running";
+                      const isPaused = taskRun?.runState === "paused";
+                      const isError = taskRun?.runState === "error";
 
                   return (
                     <TableRow
@@ -616,37 +699,33 @@ export default function MonthlyPlanManager({
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-1.5 px-2">
-                          <Button
-                            size="sm"
-                            variant={
-                              isCompletedToday ? "outline" : "default"
-                            }
-                            className="h-8 text-xs shadow-sm"
-                            disabled={isCompletedToday}
-                            onClick={() => {
-                              setStatusDialogOpen(false);
-                              if (isRunning) {
-                                void pauseDaily(task.id);
-                                return;
-                              }
-                              void executeDaily(task.id, today);
-                            }}
-                          >
-                            {isRunning ? (
-                              "暂停执行"
-                            ) : isCompletedToday ? (
-                              "今日完成"
-                            ) : isPaused ? (
-                              "继续执行"
-                            ) : isError ? (
-                              "重新执行"
-                            ) : (
-                              <>
-                                <PlayIcon className="size-3 mr-1" />
-                                执行
-                              </>
-                            )}
-                          </Button>
+                          {!isCompletedToday && (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="h-8 text-xs shadow-sm"
+                              onClick={() => {
+                                if (isRunning) {
+                                  void pauseDaily(task.id);
+                                  return;
+                                }
+                                void executeDaily(task.id, today);
+                              }}
+                            >
+                              {isRunning ? (
+                                "暂停执行"
+                              ) : isPaused ? (
+                                "继续执行"
+                              ) : isError ? (
+                                "重新执行"
+                              ) : (
+                                <>
+                                  <PlayIcon className="size-3 mr-1" />
+                                  执行
+                                </>
+                              )}
+                            </Button>
+                          )}
                           <Button
                             variant="secondary"
                             size="sm"
@@ -667,13 +746,14 @@ export default function MonthlyPlanManager({
                       </TableCell>
                     </TableRow>
                   );
-                })
-              )}
-            </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent className="sm:max-w-2xl max-h-[88vh] overflow-hidden flex flex-col">
@@ -817,15 +897,6 @@ export default function MonthlyPlanManager({
           </div>
         </DialogContent>
       </Dialog>
-
-      <TaskStatusDialog
-        task={selectedTask}
-        open={statusDialogOpen}
-        onOpenChange={setStatusDialogOpen}
-        currentRun={
-          selectedTask ? (getTaskRun(selectedTask.id) ?? undefined) : undefined
-        }
-      />
     </div>
   );
 }

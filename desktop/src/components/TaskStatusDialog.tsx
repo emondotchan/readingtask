@@ -20,14 +20,16 @@ import {
   CheckCircle2Icon,
   AlertCircleIcon,
   ActivityIcon,
+  ArrowLeftIcon,
   HistoryIcon,
   PlayIcon,
 } from "lucide-react";
-import { getTaskResults } from "@/api/commands";
+import { getTaskResults, previewMonthlyTaskPlan, saveDailyProgress } from "@/api/commands";
 import type { TaskItemResult, MonthlyTask } from "@/types";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -36,18 +38,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { MonthlyTaskRunState } from "@/features/useMonthlyRunner";
+import type { MonthlyTaskPlanPreview } from "@/types";
 
 interface Props {
   task: MonthlyTask | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onBack: () => void;
   currentRun?: MonthlyTaskRunState;
 }
 
 export function TaskStatusDialog({
   task,
-  open,
-  onOpenChange,
+  onBack,
   currentRun,
 }: Props) {
   const [historyResults, setHistoryResults] = useState<TaskItemResult[]>([]);
@@ -63,29 +64,51 @@ export function TaskStatusDialog({
         ? false
         : item.outcome === "Success";
   const getResultDate = (item: TaskItemResult) =>
-    item.executed_date ?? currentRun?.date ?? null;
+    item.executed_date ?? (currentRun?.date ? `${currentRun.date} 00:00:00` : null);
+  const getResultDay = (item: TaskItemResult) => {
+    const raw = getResultDate(item);
+    return raw ? raw.slice(0, 10) : null;
+  };
+  const getResultDateDisplay = (item: TaskItemResult) => {
+    const raw = getResultDate(item);
+    if (!raw) {
+      return "—";
+    }
+    return raw.length === 10 ? `${raw} 00:00:00` : raw;
+  };
   const getResultRtnMsg = (item: TaskItemResult) =>
     item.rtn_msg ?? item.error_message ?? item.response_text ?? "—";
   const getResultReadId = (item: TaskItemResult) => item.read_id ?? "None";
 
-  useEffect(() => {
-    if (open && task) {
-      setLoading(true);
-      getTaskResults(task.id)
-        .then(setHistoryResults)
-        .catch(console.error)
-        .finally(() => setLoading(false));
-    }
-  }, [open, task, currentRun?.runState]);
+  // plan modal state
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planPreview, setPlanPreview] = useState<MonthlyTaskPlanPreview | null>(null);
+  const [editingDay, setEditingDay] = useState<string | null>(null);
+  const [editorText, setEditorText] = useState("");
 
   useEffect(() => {
-    if (!open) {
+    if (!task) {
+      setHistoryResults([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    getTaskResults(task.id)
+      .then(setHistoryResults)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [task?.id, currentRun?.runState]);
+
+  useEffect(() => {
+    if (!task) {
       return;
     }
 
     setSelectedDate("all");
     setCurrentPage(1);
-  }, [open, task?.id]);
+  }, [task?.id]);
 
   const isRunning = currentRun?.runState === "running";
   const mergedHistoryResults = useMemo(() => {
@@ -120,7 +143,7 @@ export function TaskStatusDialog({
       Array.from(
         new Set(
           mergedHistoryResults
-            .map((item) => getResultDate(item))
+            .map((item) => getResultDay(item))
             .filter((value): value is string => Boolean(value)),
         ),
       ).sort((a, b) => b.localeCompare(a)),
@@ -132,7 +155,7 @@ export function TaskStatusDialog({
     }
 
     return mergedHistoryResults.filter(
-      (item) => getResultDate(item) === selectedDate,
+      (item) => getResultDay(item) === selectedDate,
     );
   }, [mergedHistoryResults, selectedDate]);
   const totalPages = Math.max(
@@ -148,7 +171,7 @@ export function TaskStatusDialog({
       new Set(
         mergedHistoryResults
           .filter((item) => getResultSucceeded(item))
-          .map((item) => getResultDate(item))
+          .map((item) => getResultDay(item))
           .filter((value): value is string => Boolean(value)),
       ).size,
     [mergedHistoryResults],
@@ -172,35 +195,45 @@ export function TaskStatusDialog({
   if (!task) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl lg:max-w-6xl w-[95vw] sm:w-[90vw] overflow-hidden flex flex-col max-h-[90vh]">
-        <DialogHeader className="shrink-0 border-b pb-4">
-          <div className="flex items-center justify-between pr-2">
+    <Card className="border-border shadow-sm">
+      <CardHeader className="border-b border-border pb-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-fit"
+              onClick={onBack}
+            >
+              <ArrowLeftIcon className="mr-1 size-3.5" />
+              返回列表
+            </Button>
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-muted p-2.5 text-muted-foreground">
                 <ActivityIcon className="size-5" />
               </div>
               <div>
-                <DialogTitle className="text-xl">
+                <CardTitle className="text-xl">
                   任务详情: {task.fc_name}
-                </DialogTitle>
+                </CardTitle>
                 <p className="mt-0.5 font-mono text-xs uppercase text-muted-foreground">
                   ID: {task.s_course_id} • 经理 ID: {task.s_manager_id}
                 </p>
               </div>
             </div>
-            {isRunning && (
-              <Badge
-                variant="outline"
-                className="animate-pulse border-sky-200 bg-sky-50 py-1 px-3 mr-3 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/20 dark:text-sky-300"
-              >
-                正在执行中...
-              </Badge>
-            )}
           </div>
-        </DialogHeader>
+          {isRunning && (
+            <Badge
+              variant="outline"
+              className="w-fit animate-pulse border-sky-200 bg-sky-50 py-1 px-3 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/20 dark:text-sky-300"
+            >
+              正在执行中...
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
 
-        <div className="flex-1 overflow-y-auto py-6 space-y-8">
+      <CardContent className="space-y-8 py-6">
           {/* Real-time Progress Section (Only visible when running) */}
           {isRunning && (
             <div className="space-y-4 rounded-xl border border-sky-200/70 bg-sky-500/8 p-6 dark:border-sky-900/60 dark:bg-sky-950/20">
@@ -243,9 +276,24 @@ export function TaskStatusDialog({
                 月度总目标
               </span>
               <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-bold text-foreground">
+                <button
+                  className="text-2xl font-bold text-foreground text-left"
+                  onClick={async () => {
+                    setPlanOpen(true);
+                    setPlanLoading(true);
+                    try {
+                      const preview = await previewMonthlyTaskPlan(task as any);
+                      setPlanPreview(preview);
+                    } catch (e) {
+                      console.error(e);
+                      setPlanPreview(null);
+                    } finally {
+                      setPlanLoading(false);
+                    }
+                  }}
+                >
                   {task.total_target}
-                </span>
+                </button>
                 <span className="text-xs text-muted-foreground">阅读</span>
               </div>
             </div>
@@ -310,6 +358,98 @@ export function TaskStatusDialog({
           </div>
 
           {/* History Records Table */}
+          <Dialog open={planOpen} onOpenChange={setPlanOpen}>
+            <DialogContent className="sm:max-w-2xl w-[95vw] sm:w-[80vw] max-h-[88vh] overflow-hidden flex flex-col">
+              <DialogHeader className="shrink-0 border-b pb-4">
+                <DialogTitle>每日任务 明细</DialogTitle>
+              </DialogHeader>
+              <div className="flex-1 overflow-y-auto pr-1">
+                <div className="space-y-4 py-2">
+                  {planLoading ? (
+                    <div className="flex items-center justify-center p-6">
+                      <Spinner />
+                    </div>
+                  ) : planPreview ? (
+                    <div>
+                      <div className="grid gap-2">
+                        {planPreview.daily_plans.map((day) => (
+                          <div key={day.date} className="rounded-md border p-3">
+                            <div className="grid gap-3 md:grid-cols-[minmax(132px,156px)_minmax(0,1fr)_auto] md:items-start">
+                              <div className="min-w-[132px]">
+                                <div className="font-mono text-sm">{day.date}</div>
+                                <Badge
+                                  variant="secondary"
+                                  className="mt-2 min-w-[88px] justify-center"
+                                >
+                                  目标 {day.target_count} 家
+                                </Badge>
+                              </div>
+                              <div className="min-w-0 rounded-md bg-muted/40 px-3 py-2 text-sm font-mono break-all text-muted-foreground">
+                                {day.shopcodes.join(", ")}
+                              </div>
+                              <div className="md:justify-self-end">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingDay(day.date);
+                                    setEditorText(day.shopcodes.join("\n"));
+                                  }}
+                                >
+                                  编辑
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {editingDay && (
+                        <div className="mt-4 space-y-2">
+                          <div className="text-sm font-semibold">编辑 {editingDay} 的 shopcodes（每行一个）</div>
+                          <textarea
+                            className="w-full h-40 rounded border p-2 font-mono"
+                            value={editorText}
+                            onChange={(e) => setEditorText(e.target.value)}
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={async () => {
+                                if (!planPreview) return;
+                                const daily = planPreview.daily_plans.find((d) => d.date === editingDay);
+                                if (!daily) return;
+                                const newShopcodes = editorText
+                                  .split(/\r?\n/)
+                                  .map((s) => s.trim())
+                                  .filter(Boolean);
+                                const updated = { ...daily, shopcodes: newShopcodes };
+                                try {
+                                  await saveDailyProgress(updated as any);
+                                  // reload preview
+                                  const preview = await previewMonthlyTaskPlan(task as any);
+                                  setPlanPreview(preview);
+                                  setEditingDay(null);
+                                } catch (e) {
+                                  console.error(e);
+                                }
+                              }}
+                            >
+                              保存
+                            </Button>
+                            <Button variant="outline" onClick={() => setEditingDay(null)}>
+                              取消
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-6 text-sm text-muted-foreground">无法生成计划预览。</div>
+                  )}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
@@ -419,7 +559,7 @@ export function TaskStatusDialog({
                               )}
                             </TableCell>
                             <TableCell className="py-3 text-left font-mono text-xs text-muted-foreground">
-                              {getResultDate(item) ?? "—"}
+                              {getResultDateDisplay(item)}
                             </TableCell>
                             <TableCell className="py-3 text-left">
                               <code className="block rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
@@ -484,8 +624,7 @@ export function TaskStatusDialog({
               </div>
             )}
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+      </CardContent>
+    </Card>
   );
 }

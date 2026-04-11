@@ -75,12 +75,17 @@ export interface FcRecord {
   manager_id: string;
 }
 
+export interface UpsertFcInput {
+  fc: FcRecord;
+  previous_name?: string | null;
+}
+
 export async function getFcs(): Promise<FcRecord[]> {
   return invoke<FcRecord[]>("get_fcs");
 }
 
-export async function addOrUpdateFc(fc: FcRecord): Promise<void> {
-  return invoke<void>("add_or_update_fc", { fc });
+export async function addOrUpdateFc(input: UpsertFcInput): Promise<void> {
+  return invoke<void>("add_or_update_fc", { fc: input });
 }
 
 export async function deleteFc(name: string): Promise<void> {
@@ -105,6 +110,10 @@ export async function createMonthlyTask(
   task: MonthlyTask,
 ): Promise<MonthlyTaskPlanPreview> {
   return invoke<MonthlyTaskPlanPreview>("create_monthly_task", { task });
+}
+
+export async function saveDailyProgress(progress: DailyProgress): Promise<void> {
+  return invoke<void>("save_daily_progress", { progress });
 }
 
 export async function deleteMonthlyTask(id: string): Promise<void> {

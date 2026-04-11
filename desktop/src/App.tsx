@@ -7,8 +7,7 @@ import QuickRunResults from "@/components/QuickRunResults";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTaskRunner } from "@/features/useTaskRunner";
 import { useMonthlyRunner } from "@/features/useMonthlyRunner";
-import { TaskStatusDialog } from "@/components/TaskStatusDialog";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { ModeToggle } from "@/components/ModeToggle";
 
 export default function App() {
@@ -26,15 +25,10 @@ export default function App() {
     items,
     summary,
     error,
-    linkedTaskId,
-    linkedTaskProgress,
-    linkedTaskResults,
-    linkedTaskSyncError,
     canSubmit,
     execute,
   } = taskRunner;
 
-  const [quickRunDialogOpen, setQuickRunDialogOpen] = useState(false);
   const handleRuntimeStatusChanged = useCallback(async () => {
     await Promise.all([
       taskRunner.refreshRuntimeStatus(),
@@ -119,10 +113,6 @@ export default function App() {
                   items={items}
                   summary={summary}
                   error={error}
-                  linkedTaskId={linkedTaskId}
-                  linkedTaskProgress={linkedTaskProgress}
-                  linkedTaskResults={linkedTaskResults}
-                  linkedTaskSyncError={linkedTaskSyncError}
                 />
               </div>
             </div>
@@ -130,12 +120,6 @@ export default function App() {
         </Tabs>
       </div>
 
-      {/* Keep Status Dialog for historical lookups if needed */}
-      <TaskStatusDialog
-        task={null}
-        open={quickRunDialogOpen}
-        onOpenChange={setQuickRunDialogOpen}
-      />
     </main>
   );
 }

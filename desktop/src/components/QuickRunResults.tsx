@@ -4,19 +4,13 @@ import {
   ActivityIcon,
   PlayIcon,
   Clock3Icon,
-  Link2Icon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
-import type {
-  CommandError,
-  DailyProgress,
-  TaskItemResult,
-  TaskRunSummary,
-} from "@/types";
+import type { CommandError, TaskItemResult, TaskRunSummary } from "@/types";
 
 interface Props {
   runState: string;
@@ -25,10 +19,6 @@ interface Props {
   items: TaskItemResult[];
   summary: TaskRunSummary | null;
   error: CommandError | null;
-  linkedTaskId: string | null;
-  linkedTaskProgress: DailyProgress | null;
-  linkedTaskResults: TaskItemResult[] | null;
-  linkedTaskSyncError: string | null;
 }
 
 export default function QuickRunResults({
@@ -38,10 +28,6 @@ export default function QuickRunResults({
   items,
   summary,
   error,
-  linkedTaskId,
-  linkedTaskProgress,
-  linkedTaskResults,
-  linkedTaskSyncError,
 }: Props) {
   const getResultSucceeded = (item: TaskItemResult) =>
     item.submit_err === 0
@@ -53,20 +39,13 @@ export default function QuickRunResults({
     item.rtn_msg ?? item.error_message ?? item.response_text ?? "—";
   const getResultReadId = (item: TaskItemResult) => item.read_id ?? "None";
   const isRunning = runState === "running";
-  const archiveResult = summary?.archive_result ?? null;
-  const displayProcessedCount =
-    !isRunning && linkedTaskProgress
-      ? linkedTaskProgress.completed_count
-      : processedCount;
-  const displayRequestedCount =
-    !isRunning && linkedTaskProgress
-      ? linkedTaskProgress.target_count
-      : requestedCount;
+  const displayProcessedCount = processedCount;
+  const displayRequestedCount = requestedCount;
   const progressValue =
     displayRequestedCount > 0
       ? (displayProcessedCount / displayRequestedCount) * 100
       : 0;
-  const displayItems = !isRunning && linkedTaskResults ? linkedTaskResults : items;
+  const displayItems = summary?.items ?? items;
 
   if (runState === "idle" && displayItems.length === 0) {
     return (
@@ -100,53 +79,10 @@ export default function QuickRunResults({
 
         <Progress value={progressValue} className="h-1.5 bg-muted" />
 
-        {!isRunning && linkedTaskId && (
-          <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-medium text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/25 dark:text-emerald-200">
-            已关联月度计划任务：{linkedTaskId}
-          </div>
-        )}
-
         {error && (
           <div className="mt-4 flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/50 dark:bg-rose-950/25">
             <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-rose-500 dark:text-rose-300" />
             <p className="text-xs leading-relaxed font-medium text-rose-700 dark:text-rose-200">{error.message}</p>
-          </div>
-        )}
-
-        {linkedTaskSyncError && (
-          <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/25">
-            <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
-            <p className="text-xs leading-relaxed font-medium text-amber-700 dark:text-amber-200">{linkedTaskSyncError}</p>
-          </div>
-        )}
-
-        {!isRunning && archiveResult && (
-          <div className={cn(
-            "mt-4 flex items-start gap-3 rounded-lg border p-3",
-            archiveResult.status === "Archived"
-              ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/25"
-              : archiveResult.status === "DuplicateTasks"
-                ? "border-rose-200 bg-rose-50 dark:border-rose-900/50 dark:bg-rose-950/25"
-                : "border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/25"
-          )}>
-            <Link2Icon className={cn(
-              "mt-0.5 size-4 shrink-0",
-              archiveResult.status === "Archived"
-                ? "text-emerald-600 dark:text-emerald-300"
-                : archiveResult.status === "DuplicateTasks"
-                  ? "text-rose-500 dark:text-rose-300"
-                  : "text-amber-600 dark:text-amber-300"
-            )} />
-            <p className={cn(
-              "text-xs leading-relaxed font-medium",
-              archiveResult.status === "Archived"
-                ? "text-emerald-700 dark:text-emerald-200"
-                : archiveResult.status === "DuplicateTasks"
-                  ? "text-rose-700 dark:text-rose-200"
-                  : "text-amber-700 dark:text-amber-200"
-            )}>
-              {archiveResult.message}
-            </p>
           </div>
         )}
       </div>

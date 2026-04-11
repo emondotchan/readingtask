@@ -2,7 +2,7 @@
 
 ## Collaboration Rules
 - After finishing a task, leave a concise follow-up question instead of silently ending the conversation.
-- If the runtime provides a dedicated user-input tool, prefer it. Otherwise, ask in plain text.
+- If the runtime provides a dedicated user-input tool (such as: `ask_user` ...), prefer it. Otherwise, ask in plain text.
 - Do not revert unrelated local changes. This repository may contain in-progress data or generated assets.
 
 ## Project Structure

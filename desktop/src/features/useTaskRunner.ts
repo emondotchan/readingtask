@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  getDailyProgress,
-  getTaskResults,
   getRuntimeStatus,
   onTaskProgress,
   runReadingTask,
@@ -10,7 +8,6 @@ import {
 import { parseShopcodesInput } from "@/lib/utils";
 import type {
   CommandError,
-  DailyProgress,
   RuntimeStatus,
   TaskItemResult,
   TaskRunSummary,
@@ -50,10 +47,6 @@ export function useTaskRunner() {
   const [items, setItems] = useState<TaskItemResult[]>([]);
   const [summary, setSummary] = useState<TaskRunSummary | null>(null);
   const [error, setError] = useState<CommandError | null>(null);
-  const [linkedTaskId, setLinkedTaskId] = useState<string | null>(null);
-  const [linkedTaskProgress, setLinkedTaskProgress] = useState<DailyProgress | null>(null);
-  const [linkedTaskResults, setLinkedTaskResults] = useState<TaskItemResult[] | null>(null);
-  const [linkedTaskSyncError, setLinkedTaskSyncError] = useState<string | null>(null);
 
   const unlistenRef = useRef<(() => void) | null>(null);
 
@@ -140,10 +133,6 @@ export function useTaskRunner() {
     setItems([]);
     setSummary(null);
     setError(null);
-    setLinkedTaskId(null);
-    setLinkedTaskProgress(null);
-    setLinkedTaskResults(null);
-    setLinkedTaskSyncError(null);
 
     try {
       const result = await runReadingTask({
@@ -160,30 +149,6 @@ export function useTaskRunner() {
       setProcessedCount(result.processed_count);
       setRequestedCount(result.requested_count);
       setRunState("completed");
-
-      const archivedTaskId =
-        result.archive_result?.status === "Archived"
-          ? result.archive_result.task_id
-          : null;
-
-      if (archivedTaskId) {
-        setLinkedTaskId(archivedTaskId);
-
-        try {
-          const [progress, taskResults] = await Promise.all([
-            getDailyProgress(archivedTaskId, getTodayDate()),
-            getTaskResults(archivedTaskId),
-          ]);
-
-          setLinkedTaskProgress(progress);
-          setLinkedTaskResults(taskResults);
-          setLinkedTaskSyncError(null);
-        } catch (reason) {
-          setLinkedTaskSyncError(
-            `已归档到月度计划，但同步月度计划进度失败：${String(reason)}`,
-          );
-        }
-      }
     } catch (reason: unknown) {
       const maybeCommandError = reason as CommandError;
       if (
@@ -211,10 +176,6 @@ export function useTaskRunner() {
     items,
     summary,
     error,
-    linkedTaskId,
-    linkedTaskProgress,
-    linkedTaskResults,
-    linkedTaskSyncError,
     refreshRuntimeStatus,
     canSubmit,
     execute,

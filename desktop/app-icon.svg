@@ -1,0 +1,9 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" rx="224" fill="#FF6F61"/>
+  <!-- Book Outline -->
+  <path d="M256 320C256 320 320 256 512 256C704 256 768 320 768 320V800C768 800 704 736 512 736C320 736 256 800 256 800V320Z" stroke="white" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Center Spine -->
+  <path d="M512 256V736" stroke="white" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Checkmark -->
+  <path d="M560 510L610 560L710 460" stroke="white" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

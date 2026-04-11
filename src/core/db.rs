@@ -243,13 +243,29 @@ pub fn get_all_fcs(db: &DbContext) -> Result<Vec<FcRecord>, AppError> {
   Ok(fcs)
 }
 
-pub fn add_or_update_fc(db: &DbContext, fc: &FcRecord) -> Result<(), AppError> {
+pub fn add_or_update_fc(
+  db: &DbContext,
+  previous_name: Option<&str>,
+  fc: &FcRecord,
+) -> Result<(), AppError> {
   let conn = get_conn(db)?;
-  conn
-    .execute(
-      "INSERT OR REPLACE INTO fcs (name, manager_id) VALUES (?1, ?2)",
-      params![fc.name, fc.manager_id],
-    )
+  let tx = conn
+    .unchecked_transaction()
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+
+  if let Some(previous_name) = previous_name.map(str::trim).filter(|name| !name.is_empty())
+    && previous_name != fc.name
+  {
+    tx.execute("DELETE FROM fcs WHERE name = ?1", params![previous_name])
+      .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  }
+
+  tx.execute(
+    "INSERT OR REPLACE INTO fcs (name, manager_id) VALUES (?1, ?2)",
+    params![fc.name, fc.manager_id],
+  )
+  .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  tx.commit()
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   Ok(())
 }
@@ -392,9 +408,41 @@ pub fn save_task_results(
 
 pub fn get_task_results(db: &DbContext, task_id: &str) -> Result<Vec<TaskItemResult>, AppError> {
   let conn = get_conn(db)?;
-  let mut stmt = conn.prepare("SELECT strftime('%Y-%m-%d', timestamp_micros / 1000000.0, 'unixepoch', 'localtime') AS executed_date, index_num, open_id, shop_code, province, city, http_status, response_text, error_message, outcome, COALESCE(rtn_msg, response_text, error_message), read_id FROM task_results WHERE task_id = ?1 ORDER BY timestamp_micros DESC").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  let mut stmt = conn.prepare(
+    "SELECT
+       strftime('%Y-%m-%d %H:%M:%S', tr.timestamp_micros / 1000000.0, 'unixepoch', 'localtime') AS executed_date,
+       tr.index_num,
+       tr.open_id,
+       tr.shop_code,
+       tr.province,
+       tr.city,
+       tr.http_status,
+       tr.response_text,
+       tr.error_message,
+       tr.outcome,
+       COALESCE(tr.rtn_msg, tr.response_text, tr.error_message),
+       tr.read_id
+     FROM task_results tr
+     JOIN monthly_tasks mt ON mt.id = tr.task_id
+     LEFT JOIN shops s ON s.shop_code = tr.shop_code
+     WHERE tr.task_id = ?1
+       AND (
+         s.shop_type IS NULL
+         OR (mt.task_type = 'Avene' AND s.shop_type IN (?2, ?3))
+         OR (mt.task_type = 'Klorane' AND s.shop_type IN (?4, ?3))
+       )
+     ORDER BY tr.timestamp_micros DESC",
+  )
+  .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   let results = stmt
-    .query_map(params![task_id], |row| {
+    .query_map(
+      params![
+        task_id,
+        SHOP_TYPE_AVENE as i64,
+        SHOP_TYPE_AVENE_KLORANE as i64,
+        SHOP_TYPE_KLORANE as i64
+      ],
+      |row| {
       let response_text: Option<String> = row.get(7)?;
       let error_message: Option<String> = row.get(8)?;
       let stored_rtn_msg: Option<String> = row.get(10)?;
@@ -418,7 +466,8 @@ pub fn get_task_results(db: &DbContext, task_id: &str) -> Result<Vec<TaskItemRes
         error_message,
         outcome,
       })
-    })
+    },
+    )
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?
     .collect::<Result<Vec<_>, _>>()
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
@@ -459,17 +508,32 @@ fn infer_submit_err_from_outcome(outcome: super::model::TaskItemOutcome) -> Opti
 pub fn get_used_open_ids_for_month(
   db: &DbContext,
   month_prefix: &str,
+  task_type: Option<&str>,
 ) -> Result<std::collections::HashSet<String>, AppError> {
   let conn = get_conn(db)?;
-  let mut stmt = conn
-    .prepare("SELECT open_id FROM task_results WHERE task_id LIKE ?1")
-    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
-  let open_ids = stmt
-    .query_map(params![format!("{}%", month_prefix)], |row| row.get(0))
-    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?
-    .collect::<Result<std::collections::HashSet<String>, _>>()
-    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
-  Ok(open_ids)
+
+  if let Some(task_type) = task_type {
+    // Only return open_ids used by tasks of a specific task_type within the month
+    let mut stmt = conn
+      .prepare("SELECT tr.open_id FROM task_results tr JOIN monthly_tasks mt ON tr.task_id = mt.id WHERE tr.task_id LIKE ?1 AND mt.task_type = ?2")
+      .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+    let open_ids = stmt
+      .query_map(params![format!("{}%", month_prefix), task_type], |row| row.get(0))
+      .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?
+      .collect::<Result<std::collections::HashSet<String>, _>>()
+      .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+    Ok(open_ids)
+  } else {
+    let mut stmt = conn
+      .prepare("SELECT open_id FROM task_results WHERE task_id LIKE ?1")
+      .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+    let open_ids = stmt
+      .query_map(params![format!("{}%", month_prefix)], |row| row.get(0))
+      .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?
+      .collect::<Result<std::collections::HashSet<String>, _>>()
+      .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+    Ok(open_ids)
+  }
 }
 
 fn parse_open_id_csv(csv_text: &str) -> Result<Vec<OpenIdRecord>, AppError> {
@@ -595,4 +659,54 @@ pub fn get_shop_count_by_fc_and_type(
   };
 
   Ok(target_count)
+}
+
+#[cfg(test)]
+mod tests {
+  use tempfile::tempdir;
+
+  use super::*;
+
+  fn test_db() -> DbContext {
+    let temp_dir = tempdir().expect("create temp dir");
+    let db_path = temp_dir.path().join("test.sqlite");
+    let db = DbContext::new(db_path).expect("create db context");
+    init_db(&db).expect("initialize schema");
+    std::mem::forget(temp_dir);
+    db
+  }
+
+  #[test]
+  fn add_or_update_fc_replaces_old_name_when_editing() {
+    let db = test_db();
+
+    add_or_update_fc(
+      &db,
+      None,
+      &FcRecord {
+        name: "旧名字".to_string(),
+        manager_id: "mgr-1".to_string(),
+      },
+    )
+    .expect("insert original fc");
+
+    add_or_update_fc(
+      &db,
+      Some("旧名字"),
+      &FcRecord {
+        name: "新名字".to_string(),
+        manager_id: "mgr-2".to_string(),
+      },
+    )
+    .expect("rename fc");
+
+    let fcs = get_all_fcs(&db).expect("load fc records");
+    assert_eq!(
+      fcs,
+      vec![FcRecord {
+        name: "新名字".to_string(),
+        manager_id: "mgr-2".to_string(),
+      }]
+    );
+  }
 }

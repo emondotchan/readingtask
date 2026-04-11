@@ -205,6 +205,12 @@ pub struct RunTaskInput {
   pub run_date: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpsertFcInput {
+  pub fc: FcRecord,
+  pub previous_name: Option<String>,
+}
+
 impl From<RunTaskInput> for TaskRunRequest {
   fn from(input: RunTaskInput) -> Self {
     Self {
@@ -325,7 +331,7 @@ pub async fn delete_shop(app: tauri::AppHandle, shop_code: String) -> Result<(),
 pub async fn get_fcs(app: tauri::AppHandle) -> Result<Vec<FcRecord>, CommandError> {
   let db = resolve_db(&app)?;
   log_command(
-    Level::Info,
+    Level::Debug,
     "get_fcs",
     format!("db_path={}", db.db_path().display()),
   );
@@ -334,7 +340,7 @@ pub async fn get_fcs(app: tauri::AppHandle) -> Result<Vec<FcRecord>, CommandErro
     CommandError::from(error)
   })?;
   log_command(
-    Level::Info,
+    Level::Debug,
     "get_fcs",
     format!("loaded {} fc records", fcs.len()),
   );
@@ -342,9 +348,13 @@ pub async fn get_fcs(app: tauri::AppHandle) -> Result<Vec<FcRecord>, CommandErro
 }
 
 #[tauri::command]
-pub async fn add_or_update_fc(app: tauri::AppHandle, fc: FcRecord) -> Result<(), CommandError> {
+pub async fn add_or_update_fc(
+  app: tauri::AppHandle,
+  fc: UpsertFcInput,
+) -> Result<(), CommandError> {
   let db = resolve_db(&app)?;
-  reading_task::add_or_update_fc(&db, &fc).map_err(CommandError::from)?;
+  reading_task::add_or_update_fc(&db, fc.previous_name.as_deref(), &fc.fc)
+    .map_err(CommandError::from)?;
   Ok(())
 }
 
@@ -363,13 +373,13 @@ pub async fn get_shop_count(
 ) -> Result<usize, CommandError> {
   let db = resolve_db(&app)?;
   log_command(
-    Level::Info,
+    Level::Debug,
     "get_shop_count",
     format!("fc_name={fc_name} task_type={task_type}"),
   );
   let count = reading_task::get_shop_count_by_fc_and_type(&db, &fc_name, &task_type)
     .map_err(CommandError::from)?;
-  log_command(Level::Info, "get_shop_count", format!("count={count}"));
+  log_command(Level::Debug, "get_shop_count", format!("count={count}"));
   Ok(count)
 }
 
@@ -388,7 +398,7 @@ pub async fn get_monthly_tasks(
 ) -> Result<Vec<reading_task::MonthlyTask>, CommandError> {
   let db = resolve_db(&app)?;
   log_command(
-    Level::Info,
+    Level::Debug,
     "get_monthly_tasks",
     format!("db_path={}", db.db_path().display()),
   );
@@ -397,7 +407,7 @@ pub async fn get_monthly_tasks(
     CommandError::from(error)
   })?;
   log_command(
-    Level::Info,
+    Level::Debug,
     "get_monthly_tasks",
     format!("loaded {} monthly tasks", tasks.len()),
   );
@@ -433,6 +443,16 @@ pub async fn get_daily_progress(
 }
 
 #[tauri::command]
+pub async fn save_daily_progress(
+  app: tauri::AppHandle,
+  progress: reading_task::DailyProgress,
+) -> Result<(), CommandError> {
+  let db = resolve_db(&app)?;
+  reading_task::save_daily_progress(&db, &progress).map_err(CommandError::from)?;
+  Ok(())
+}
+
+#[tauri::command]
 pub async fn run_daily_task(
   app: tauri::AppHandle,
   task_id: String,
@@ -453,7 +473,16 @@ pub async fn run_daily_task(
   )
   .await;
   pause_registry.clear(&task_id);
-  let summary = summary.map_err(CommandError::from)?;
+  let summary = summary.map_err(|e| {
+    log_command(
+      log::Level::Error,
+      "run_daily_task",
+      format!("执行任务失败: {:?}", e),
+    );
+    CommandError::from(e)
+  })?;
+
+  log_command(log::Level::Debug, "run_daily_task", "执行日常任务成功");
   Ok(summary)
 }
 

@@ -1,5 +1,5 @@
-use super::error::AppError;
 use super::db::DbContext;
+use super::error::AppError;
 use super::model::{OpenIdRecord, ShopRecord};
 
 #[derive(Debug)]

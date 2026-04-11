@@ -74,10 +74,8 @@ pub fn run() {
       let show_item = MenuItem::with_id(app, TRAY_MENU_SHOW_ID, "显示主窗口", true, None::<&str>)?;
       let quit_item = MenuItem::with_id(app, TRAY_MENU_QUIT_ID, "退出", true, None::<&str>)?;
       let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
-      let tray_icon = app
-        .default_window_icon()
-        .cloned()
-        .ok_or("missing default window icon for tray")?;
+      let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon@2x.png"))
+        .map_err(|e| e.to_string())?;
 
       TrayIconBuilder::with_id(TRAY_ID)
         .icon(tray_icon)

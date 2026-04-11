@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use chrono::Local;
 use rand::RngExt;
 use rand::seq::SliceRandom;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
@@ -11,9 +12,8 @@ use super::error::AppError;
 use super::loader::load_runtime_data;
 use super::model::{
   DailyProgress, MonthlyTask, MonthlyTaskPlanPreview, OpenIdRecord, QuickRunArchiveResult,
-  QuickRunArchiveStatus, SHOP_TYPE_AVENE, SHOP_TYPE_AVENE_KLORANE,
-  SHOP_TYPE_KLORANE, ShopRecord, TaskItemOutcome, TaskItemResult, TaskProgress, TaskRunRequest,
-  TaskRunSummary,
+  QuickRunArchiveStatus, SHOP_TYPE_AVENE, SHOP_TYPE_AVENE_KLORANE, SHOP_TYPE_KLORANE, ShopRecord,
+  TaskItemOutcome, TaskItemResult, TaskProgress, TaskRunRequest, TaskRunSummary,
 };
 
 const SUBMIT_READ_LOG_URL: &str =
@@ -92,10 +92,7 @@ pub fn create_monthly_task_with_plan(
   Ok(plan)
 }
 
-pub async fn run_task(
-  db: &DbContext,
-  request: TaskRunRequest,
-) -> Result<TaskRunSummary, AppError> {
+pub async fn run_task(db: &DbContext, request: TaskRunRequest) -> Result<TaskRunSummary, AppError> {
   run_task_with_progress(db, request, |_| {}, None).await
 }
 
@@ -137,8 +134,22 @@ where
   let total_completed: usize = all_progress.iter().map(|p| p.completed_count).sum();
 
   if total_completed >= task.total_target {
+    log::warn!(
+      "任务 {} ({}) 已全部完成 (completed: {}, target: {})",
+      task.id,
+      task.fc_name,
+      total_completed,
+      task.total_target
+    );
     return Err(AppError::ExecutionError("该月度任务已全部完成".to_string()));
   }
+
+  log::info!(
+    "任务 {} 进度: 总完成 {}/{}, 准备初始化今日进度...",
+    task.id,
+    total_completed,
+    task.total_target
+  );
 
   let mut today_progress = ensure_daily_progress(db, &task, date)?;
 
@@ -162,28 +173,63 @@ where
 
   let valid_shops = filter_task_shops(runtime_data.shops, &task.fc_name, &task.task_type);
   if valid_shops.is_empty() {
+    log::error!(
+      "执行失败: 未找到 FC={} task_type={} 对应的门店",
+      task.fc_name,
+      task.task_type
+    );
     return Err(AppError::ResourceUnavailableError(format!(
       "未找到 FC={} 对应的门店",
       task.fc_name
     )));
   }
 
+  log::info!(
+    "符合条件 (FC: {}, Type: {}) 的门店总计: {}",
+    task.fc_name,
+    task.task_type,
+    valid_shops.len()
+  );
+
   let selected_shops = if today_progress.shopcodes.is_empty() {
     let used_shop_codes = super::db::get_task_results(db, task_id)?
       .into_iter()
       .map(|item| item.shop_code)
       .collect::<HashSet<_>>();
-    select_unused_monthly_shops(
+    let random_shops = select_unused_monthly_shops(
       valid_shops,
       &used_shop_codes,
       to_run,
       task.shopcodes.is_empty(),
-    )?
+    )?;
+    log::info!(
+      "未指定今日门店，从未使用门店中随机挑选 {} 家",
+      random_shops.len()
+    );
+    random_shops
   } else {
-    select_planned_shops(valid_shops, &today_progress.shopcodes)?
+    let planned_shops = select_planned_shops(valid_shops, &today_progress.shopcodes)?;
+    if planned_shops.len() < today_progress.shopcodes.len() {
+      log::warn!(
+        "已指定今日门店 {} 家，但仅筛选出 {} 家有效门店 (可能有部分被删除/不匹配)",
+        today_progress.shopcodes.len(),
+        planned_shops.len()
+      );
+    } else {
+      log::info!("已指定今日门店，筛选出 {} 家", planned_shops.len());
+    }
+
+    // 如果所有的门店都失效了，也应该阻止执行并报错，或者仅仅当作没任务
+    if planned_shops.is_empty() && !today_progress.shopcodes.is_empty() {
+      return Err(AppError::ResourceUnavailableError(
+        "今日计划的所有门店均不存在或已被删除".to_string(),
+      ));
+    }
+
+    planned_shops
   };
   let month_prefix = task_month_prefix_from_date(date)?;
-  let used_open_ids = super::db::get_used_open_ids_for_month(db, &month_prefix)?;
+  let used_open_ids = super::db::get_used_open_ids_for_month(db, &month_prefix, Some(&task.task_type))?;
   let selected_open_ids = select_manager_open_ids(
     runtime_data.open_ids,
     &task.s_manager_id,
@@ -231,8 +277,17 @@ where
     let _ = super::db::save_task_result(db, task_id, &item);
 
     if item.outcome == TaskItemOutcome::Success {
+      log::info!("请求 {}/{}: 成功 ({})", index + 1, to_run, shop.shop_code);
       today_progress.completed_count += 1;
       let _ = super::db::save_daily_progress(db, &today_progress);
+    } else {
+      log::error!(
+        "请求 {}/{}: 失败 ({}) - {:?}",
+        index + 1,
+        to_run,
+        shop.shop_code,
+        item.rtn_msg
+      );
     }
 
     items.push(item.clone());
@@ -250,6 +305,15 @@ where
     .count();
   let processed_count = items.len();
   let failure_count = processed_count.saturating_sub(success_count);
+
+  log::info!(
+    "今日任务 {} ({}) 执行完成: 总计: {}, 成功: {}, 失败: {}",
+    task_id,
+    date,
+    processed_count,
+    success_count,
+    failure_count
+  );
 
   today_progress.is_locked = true;
   super::db::save_daily_progress(db, &today_progress)?;
@@ -316,7 +380,7 @@ async fn execute_single_request(
         ),
         Err(error) => TaskItemResult {
           index: index + 1,
-          executed_date: None,
+          executed_date: Some(current_datetime_string()),
           submit_err: None,
           rtn_msg: None,
           read_id: None,
@@ -333,7 +397,7 @@ async fn execute_single_request(
     }
     Err(error) => TaskItemResult {
       index: index + 1,
-      executed_date: None,
+      executed_date: Some(current_datetime_string()),
       submit_err: None,
       rtn_msg: None,
       read_id: None,
@@ -402,10 +466,10 @@ where
             shop,
             Some(status),
             classify_submit_read_log_response(&text),
-          ),
+        ),
           Err(error) => TaskItemResult {
             index: index + 1,
-            executed_date: None,
+            executed_date: Some(current_datetime_string()),
             submit_err: None,
             rtn_msg: None,
             read_id: None,
@@ -422,7 +486,7 @@ where
       }
       Err(error) => TaskItemResult {
         index: index + 1,
-        executed_date: None,
+        executed_date: Some(current_datetime_string()),
         submit_err: None,
         rtn_msg: None,
         read_id: None,
@@ -553,7 +617,7 @@ fn build_task_item_result(
 ) -> TaskItemResult {
   TaskItemResult {
     index: index + 1,
-    executed_date: None,
+    executed_date: Some(current_datetime_string()),
     submit_err: classified.submit_err,
     rtn_msg: classified.rtn_msg,
     read_id: classified.read_id,
@@ -629,7 +693,20 @@ fn prepare_run(
     .map(ToOwned::to_owned)
     .unwrap_or_else(current_date_string);
   let month_prefix = task_month_prefix_from_date(&run_date)?;
-  let used_open_ids = super::db::get_used_open_ids_for_month(db, &month_prefix)?;
+  // Attempt to infer task_type from an existing monthly task for the same month/fc/course.
+  let matched_tasks = super::db::find_monthly_tasks_by_month_fc_course(
+    db,
+    &month_prefix,
+    &request.fc,
+    &request.s_course_id,
+  )?;
+  let task_type_opt: Option<&str> = if matched_tasks.len() == 1 {
+    Some(matched_tasks[0].task_type.as_str())
+  } else {
+    None
+  };
+
+  let used_open_ids = super::db::get_used_open_ids_for_month(db, &month_prefix, task_type_opt)?;
   let selected_open_ids = select_manager_open_ids(
     runtime_data.open_ids,
     &request.s_manager_id,
@@ -770,13 +847,16 @@ fn select_manager_open_ids(
     )));
   }
 
-  if count > available_open_ids.len() {
-    return Err(AppError::ResourceUnavailableError(format!(
-      "ManagerID={} 本月剩余可用 OpenID 数量 {}，不足以完成请求数量 {}。同月内使用过的 OpenID 不能重复执行",
+  let avail_len = available_open_ids.len();
+  if count > avail_len {
+    // 不应该阻止当日任务；如果可用 OpenID 不足，则只使用剩余的 OpenID 执行可执行的请求数量
+    log::warn!(
+      "ManagerID={} 本月剩余可用 OpenID 数量 {}，不足以完成请求数量 {}；将仅使用剩余数量执行请求",
       manager_id,
-      available_open_ids.len(),
+      avail_len,
       count
-    )));
+    );
+    return Ok(sample_open_ids(available_open_ids, avail_len));
   }
 
   Ok(sample_open_ids(available_open_ids, count))
@@ -988,10 +1068,11 @@ fn select_planned_shops(
   let mut selected = Vec::with_capacity(planned_shopcodes.len());
 
   for shopcode in planned_shopcodes {
-    let shop = shops_by_code.remove(shopcode).ok_or_else(|| {
-      AppError::ResourceUnavailableError(format!("计划门店不存在或不匹配任务类型: {shopcode}"))
-    })?;
-    selected.push(shop);
+    if let Some(shop) = shops_by_code.remove(shopcode) {
+      selected.push(shop);
+    } else {
+      log::warn!("计划门店不存在或已被删除，跳过该门店: {}", shopcode);
+    }
   }
 
   Ok(selected)
@@ -1083,6 +1164,10 @@ fn current_date_string() -> String {
   let days = (now / 86_400) as i64;
   let (year, month, day) = civil_from_days(days);
   format!("{year:04}-{month:02}-{day:02}")
+}
+
+fn current_datetime_string() -> String {
+  Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
 fn task_month_prefix_from_date(date: &str) -> Result<String, AppError> {

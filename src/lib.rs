@@ -1,6 +1,5 @@
-mod logging;
 mod core;
-pub use logging::init_logging;
+mod logging;
 pub use core::{
   AppError, AppPaths, DailyProgress, DbContext, FcRecord, MonthlyTask, MonthlyTaskPlanPreview,
   OpenIdRecord, QuickRunArchiveResult, QuickRunArchiveStatus, ShopRecord, TaskItemOutcome,
@@ -13,3 +12,4 @@ pub use core::{
   preview_monthly_task_plan, run_daily_task_with_progress, run_daily_task_with_progress_controlled,
   run_task, run_task_with_progress, save_daily_progress,
 };
+pub use logging::init_logging;
