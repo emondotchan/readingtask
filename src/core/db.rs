@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use super::error::AppError;
 use super::model::{
-  AppPaths, DailyProgress, FcRecord, MonthlyTask, OpenIdRecord, SHOP_TYPE_AVENE,
+  AppPaths, CourseRecord, DailyTask, FcRecord, MonthlyTask, OpenIdRecord, SHOP_TYPE_AVENE,
   SHOP_TYPE_AVENE_KLORANE, SHOP_TYPE_KLORANE, ShopRecord, TaskItemResult,
 };
 
@@ -81,21 +81,22 @@ pub fn init_db(db: &DbContext) -> Result<(), AppError> {
         "CREATE TABLE IF NOT EXISTS open_ids (open_id TEXT PRIMARY KEY, manager_id TEXT);
          CREATE TABLE IF NOT EXISTS shops (shop_code TEXT PRIMARY KEY, province TEXT, city TEXT, fc TEXT, shop_type INTEGER);
          CREATE TABLE IF NOT EXISTS fcs (name TEXT PRIMARY KEY, manager_id TEXT);
+         CREATE TABLE IF NOT EXISTS courses (month TEXT, course_id TEXT, task_type TEXT, PRIMARY KEY(month, course_id, task_type));
          CREATE TABLE IF NOT EXISTS monthly_tasks (id TEXT PRIMARY KEY, fc_name TEXT, s_manager_id TEXT, s_course_id TEXT, task_type TEXT, total_target INTEGER, target_days INTEGER, created_at TEXT, shopcodes_json TEXT);
-         CREATE TABLE IF NOT EXISTS daily_progress (task_id TEXT, date TEXT, target_count INTEGER, completed_count INTEGER, is_locked INTEGER NOT NULL DEFAULT 0, shopcodes_json TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(task_id, date));
+         CREATE TABLE IF NOT EXISTS daily_tasks (task_id TEXT, date TEXT, target_count INTEGER, completed_count INTEGER, is_locked INTEGER NOT NULL DEFAULT 0, shopcodes_json TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(task_id, date));
          CREATE TABLE IF NOT EXISTS task_results (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, timestamp_micros INTEGER, index_num INTEGER, open_id TEXT, shop_code TEXT, province TEXT, city TEXT, http_status INTEGER, response_text TEXT, error_message TEXT, outcome INTEGER, rtn_msg TEXT, read_id TEXT);
          CREATE TABLE IF NOT EXISTS sys_metadata (key TEXT PRIMARY KEY, value TEXT);"
     ).map_err(|e| AppError::ResourceUnavailableError(format!("创建表失败: {}", e)))?;
 
-  ensure_daily_progress_schema(&conn)?;
+  ensure_daily_tasks_schema(&conn)?;
   ensure_task_results_schema(&conn)?;
 
   Ok(())
 }
 
-fn ensure_daily_progress_schema(conn: &rusqlite::Connection) -> Result<(), AppError> {
+fn ensure_daily_tasks_schema(conn: &rusqlite::Connection) -> Result<(), AppError> {
   let mut stmt = conn
-    .prepare("PRAGMA table_info(daily_progress)")
+    .prepare("PRAGMA table_info(daily_tasks)")
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   let columns = stmt
     .query_map([], |row| row.get::<_, String>(1))
@@ -106,22 +107,22 @@ fn ensure_daily_progress_schema(conn: &rusqlite::Connection) -> Result<(), AppEr
   if !columns.iter().any(|column| column == "is_locked") {
     conn
       .execute(
-        "ALTER TABLE daily_progress ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE daily_tasks ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0",
         [],
       )
       .map_err(|e| {
-        AppError::ResourceUnavailableError(format!("更新 daily_progress 表失败: {}", e))
+        AppError::ResourceUnavailableError(format!("更新 daily_tasks 表失败: {}", e))
       })?;
   }
 
   if !columns.iter().any(|column| column == "shopcodes_json") {
     conn
       .execute(
-        "ALTER TABLE daily_progress ADD COLUMN shopcodes_json TEXT NOT NULL DEFAULT '[]'",
+        "ALTER TABLE daily_tasks ADD COLUMN shopcodes_json TEXT NOT NULL DEFAULT '[]'",
         [],
       )
       .map_err(|e| {
-        AppError::ResourceUnavailableError(format!("更新 daily_progress 表失败: {}", e))
+        AppError::ResourceUnavailableError(format!("更新 daily_tasks 表失败: {}", e))
       })?;
   }
 
@@ -278,6 +279,73 @@ pub fn delete_fc(db: &DbContext, name: &str) -> Result<(), AppError> {
   Ok(())
 }
 
+pub fn get_all_courses(db: &DbContext) -> Result<Vec<CourseRecord>, AppError> {
+  let conn = get_conn(db)?;
+  let mut stmt = conn
+    .prepare("SELECT month, course_id, task_type FROM courses ORDER BY month DESC, task_type ASC, course_id ASC")
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  let courses = stmt
+    .query_map([], |row| {
+      Ok(CourseRecord {
+        month: row.get(0)?,
+        course_id: row.get(1)?,
+        task_type: row.get(2)?,
+      })
+    })
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  Ok(courses)
+}
+
+pub fn add_or_update_course(
+  db: &DbContext,
+  previous: Option<(&str, &str, &str)>,
+  course: &CourseRecord,
+) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
+  let tx = conn
+    .unchecked_transaction()
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+
+  if let Some((previous_month, previous_course_id, previous_task_type)) = previous
+    && (previous_month != course.month
+      || previous_course_id != course.course_id
+      || previous_task_type != course.task_type)
+  {
+    tx.execute(
+      "DELETE FROM courses WHERE month = ?1 AND course_id = ?2 AND task_type = ?3",
+      params![previous_month, previous_course_id, previous_task_type],
+    )
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  }
+
+  tx.execute(
+    "INSERT OR REPLACE INTO courses (month, course_id, task_type) VALUES (?1, ?2, ?3)",
+    params![course.month, course.course_id, course.task_type],
+  )
+  .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  tx.commit()
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  Ok(())
+}
+
+pub fn delete_course(
+  db: &DbContext,
+  month: &str,
+  course_id: &str,
+  task_type: &str,
+) -> Result<(), AppError> {
+  let conn = get_conn(db)?;
+  conn
+    .execute(
+      "DELETE FROM courses WHERE month = ?1 AND course_id = ?2 AND task_type = ?3",
+      params![month, course_id, task_type],
+    )
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  Ok(())
+}
+
 pub fn get_all_monthly_tasks(db: &DbContext) -> Result<Vec<MonthlyTask>, AppError> {
   let conn = get_conn(db)?;
   let mut stmt = conn.prepare("SELECT id, fc_name, s_manager_id, s_course_id, task_type, total_target, target_days, created_at, shopcodes_json FROM monthly_tasks").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
@@ -319,17 +387,17 @@ pub fn delete_monthly_task(db: &DbContext, id: &str) -> Result<(), AppError> {
   Ok(())
 }
 
-pub fn get_daily_progress(
+pub fn get_daily_task(
   db: &DbContext,
   task_id: &str,
   date: &str,
-) -> Result<Option<DailyProgress>, AppError> {
+) -> Result<Option<DailyTask>, AppError> {
   let conn = get_conn(db)?;
-  let mut stmt = conn.prepare("SELECT task_id, date, target_count, completed_count, is_locked, shopcodes_json FROM daily_progress WHERE task_id = ?1 AND date = ?2").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  let mut stmt = conn.prepare("SELECT task_id, date, target_count, completed_count, is_locked, shopcodes_json FROM daily_tasks WHERE task_id = ?1 AND date = ?2").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   let progress = stmt
     .query_row(params![task_id, date], |row| {
       let shopcodes_json: String = row.get(5)?;
-      Ok(DailyProgress {
+      Ok(DailyTask {
         task_id: row.get(0)?,
         date: row.get(1)?,
         target_count: row.get::<_, i64>(2)? as usize,
@@ -343,20 +411,20 @@ pub fn get_daily_progress(
   Ok(progress)
 }
 
-pub fn get_all_progress_for_task(
+pub fn get_all_daily_tasks_for_task(
   db: &DbContext,
   task_id: &str,
-) -> Result<Vec<DailyProgress>, AppError> {
+) -> Result<Vec<DailyTask>, AppError> {
   let conn = get_conn(db)?;
   let mut stmt = conn
     .prepare(
-      "SELECT task_id, date, target_count, completed_count, is_locked, shopcodes_json FROM daily_progress WHERE task_id = ?1 ORDER BY date ASC",
+      "SELECT task_id, date, target_count, completed_count, is_locked, shopcodes_json FROM daily_tasks WHERE task_id = ?1 ORDER BY date ASC",
     )
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   let progress = stmt
     .query_map(params![task_id], |row| {
       let shopcodes_json: String = row.get(5)?;
-      Ok(DailyProgress {
+      Ok(DailyTask {
         task_id: row.get(0)?,
         date: row.get(1)?,
         target_count: row.get::<_, i64>(2)? as usize,
@@ -371,11 +439,11 @@ pub fn get_all_progress_for_task(
   Ok(progress)
 }
 
-pub fn save_daily_progress(db: &DbContext, progress: &DailyProgress) -> Result<(), AppError> {
+pub fn save_daily_task(db: &DbContext, progress: &DailyTask) -> Result<(), AppError> {
   let conn = get_conn(db)?;
   let shopcodes_json = serde_json::to_string(&progress.shopcodes)
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
-  conn.execute("INSERT OR REPLACE INTO daily_progress (task_id, date, target_count, completed_count, is_locked, shopcodes_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+  conn.execute("INSERT OR REPLACE INTO daily_tasks (task_id, date, target_count, completed_count, is_locked, shopcodes_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![progress.task_id, progress.date, progress.target_count as i64, progress.completed_count as i64, if progress.is_locked { 1_i64 } else { 0_i64 }, shopcodes_json]).map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   Ok(())
 }
@@ -391,7 +459,7 @@ pub fn save_task_result(
     .unwrap()
     .as_micros() as i64;
   conn.execute("INSERT INTO task_results (task_id, timestamp_micros, index_num, open_id, shop_code, province, city, http_status, response_text, error_message, outcome, rtn_msg, read_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-        params![task_id, now, result.index as i64, result.open_id, result.shop_code, result.province, result.city, result.http_status, result.response_text, result.error_message, result.outcome as i32, result.rtn_msg, result.read_id]).map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+        params![task_id, now, result.index as i64, result.open_id, result.shop_code, result.province, result.city, result.http_status, result.response_text, rusqlite::types::Null, result.outcome as i32, result.rtn_msg, result.read_id]).map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   Ok(())
 }
 
@@ -418,9 +486,8 @@ pub fn get_task_results(db: &DbContext, task_id: &str) -> Result<Vec<TaskItemRes
        tr.city,
        tr.http_status,
        tr.response_text,
-       tr.error_message,
        tr.outcome,
-       COALESCE(tr.rtn_msg, tr.response_text, tr.error_message),
+       tr.rtn_msg,
        tr.read_id
      FROM task_results tr
      JOIN monthly_tasks mt ON mt.id = tr.task_id
@@ -444,12 +511,11 @@ pub fn get_task_results(db: &DbContext, task_id: &str) -> Result<Vec<TaskItemRes
       ],
       |row| {
       let response_text: Option<String> = row.get(7)?;
-      let error_message: Option<String> = row.get(8)?;
-      let stored_rtn_msg: Option<String> = row.get(10)?;
-      let stored_read_id: Option<String> = row.get(11)?;
+      let stored_rtn_msg: Option<String> = row.get(9)?;
+      let stored_read_id: Option<String> = row.get(10)?;
       let (parsed_submit_err, parsed_rtn_msg, parsed_read_id) =
         parse_legacy_submit_read_log_fields(response_text.as_deref());
-      let outcome = row.get::<_, i32>(9)?.into();
+      let outcome = row.get::<_, i32>(8)?.into();
 
       Ok(TaskItemResult {
         index: row.get::<_, i64>(1)? as usize,
@@ -463,7 +529,6 @@ pub fn get_task_results(db: &DbContext, task_id: &str) -> Result<Vec<TaskItemRes
         city: row.get(5)?,
         http_status: row.get(6)?,
         response_text,
-        error_message,
         outcome,
       })
     },

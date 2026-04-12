@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use log::Level;
 use reading_task::{
-  AppPaths, DbContext, FcRecord, MonthlyTask, MonthlyTaskPlanPreview, OpenIdRecord, ShopRecord,
-  TaskRunRequest, TaskRunSummary,
+  AppPaths, CourseRecord, DailyTask as DailyTask, DbContext, FcRecord, MonthlyTask,
+  MonthlyTaskPlanPreview, OpenIdRecord, ShopRecord, TaskRunRequest, TaskRunSummary,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -116,7 +116,7 @@ fn normalize_sqlite_path(path: &str) -> Result<PathBuf, CommandError> {
 
 fn build_runtime_status(paths: &RuntimePaths, db: Option<&DbContext>) -> RuntimeStatus {
   let sqlite_configured = db.is_some();
-  let (open_ids_ready, shop_ready, fc_ready) = if let Some(db) = db {
+  let (open_ids_ready, shop_ready, fc_ready, course_ready) = if let Some(db) = db {
     let open_ids_ready = reading_task::get_all_open_id_records(db)
       .map(|items| !items.is_empty())
       .unwrap_or(false);
@@ -126,9 +126,12 @@ fn build_runtime_status(paths: &RuntimePaths, db: Option<&DbContext>) -> Runtime
     let fc_ready = reading_task::get_all_fcs(db)
       .map(|items| !items.is_empty())
       .unwrap_or(false);
-    (open_ids_ready, shop_ready, fc_ready)
+    let course_ready = reading_task::get_all_courses(db)
+      .map(|items| !items.is_empty())
+      .unwrap_or(false);
+    (open_ids_ready, shop_ready, fc_ready, course_ready)
   } else {
-    (false, false, false)
+    (false, false, false, false)
   };
 
   RuntimeStatus {
@@ -141,6 +144,7 @@ fn build_runtime_status(paths: &RuntimePaths, db: Option<&DbContext>) -> Runtime
     shop_ready,
     province_ready: sqlite_configured,
     fc_ready,
+    course_ready,
   }
 }
 
@@ -192,6 +196,7 @@ pub struct RuntimeStatus {
   pub shop_ready: bool,
   pub province_ready: bool,
   pub fc_ready: bool,
+  pub course_ready: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -209,6 +214,14 @@ pub struct RunTaskInput {
 pub struct UpsertFcInput {
   pub fc: FcRecord,
   pub previous_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpsertCourseInput {
+  pub course: CourseRecord,
+  pub previous_month: Option<String>,
+  pub previous_course_id: Option<String>,
+  pub previous_task_type: Option<String>,
 }
 
 impl From<RunTaskInput> for TaskRunRequest {
@@ -366,6 +379,46 @@ pub async fn delete_fc(app: tauri::AppHandle, name: String) -> Result<(), Comman
 }
 
 #[tauri::command]
+pub async fn get_courses(app: tauri::AppHandle) -> Result<Vec<CourseRecord>, CommandError> {
+  let db = resolve_db(&app)?;
+  reading_task::get_all_courses(&db).map_err(CommandError::from)
+}
+
+#[tauri::command]
+pub async fn add_or_update_course(
+  app: tauri::AppHandle,
+  course: UpsertCourseInput,
+) -> Result<(), CommandError> {
+  let db = resolve_db(&app)?;
+  reading_task::add_or_update_course(
+    &db,
+    match (
+      course.previous_month.as_deref(),
+      course.previous_course_id.as_deref(),
+      course.previous_task_type.as_deref(),
+    ) {
+      (Some(month), Some(course_id), Some(task_type)) => Some((month, course_id, task_type)),
+      _ => None,
+    },
+    &course.course,
+  )
+  .map_err(CommandError::from)?;
+  Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_course(
+  app: tauri::AppHandle,
+  month: String,
+  course_id: String,
+  task_type: String,
+) -> Result<(), CommandError> {
+  let db = resolve_db(&app)?;
+  reading_task::delete_course(&db, &month, &course_id, &task_type).map_err(CommandError::from)?;
+  Ok(())
+}
+
+#[tauri::command]
 pub async fn get_shop_count(
   app: tauri::AppHandle,
   fc_name: String,
@@ -431,24 +484,46 @@ pub async fn delete_monthly_task(app: tauri::AppHandle, id: String) -> Result<()
 }
 
 #[tauri::command]
-pub async fn get_daily_progress(
+pub async fn get_daily_task(
   app: tauri::AppHandle,
   task_id: String,
   date: String,
-) -> Result<Option<reading_task::DailyProgress>, CommandError> {
+) -> Result<Option<DailyTask>, CommandError> {
   let db = resolve_db(&app)?;
   let progress =
-    reading_task::get_daily_progress(&db, &task_id, &date).map_err(CommandError::from)?;
+    reading_task::get_daily_task(&db, &task_id, &date).map_err(CommandError::from)?;
   Ok(progress)
 }
 
 #[tauri::command]
-pub async fn save_daily_progress(
+pub async fn get_task_daily_tasks(
   app: tauri::AppHandle,
-  progress: reading_task::DailyProgress,
+  task_id: String,
+) -> Result<Vec<DailyTask>, CommandError> {
+  let db = resolve_db(&app)?;
+  reading_task::get_all_daily_tasks_for_task(&db, &task_id).map_err(CommandError::from)
+}
+
+#[tauri::command]
+pub async fn save_daily_task(
+  app: tauri::AppHandle,
+  task: DailyTask,
 ) -> Result<(), CommandError> {
   let db = resolve_db(&app)?;
-  reading_task::save_daily_progress(&db, &progress).map_err(CommandError::from)?;
+  let existing = reading_task::get_daily_task(&db, &task.task_id, &task.date)
+    .map_err(CommandError::from)?
+    .ok_or_else(|| resource_error("未找到对应的每日任务进度"))?;
+
+  if existing.is_locked {
+    return Err(validation_error("已执行的每日任务不可编辑"));
+  }
+
+  let updated = DailyTask {
+    shopcodes: task.shopcodes,
+    ..existing
+  };
+
+  reading_task::save_daily_task(&db, &updated).map_err(CommandError::from)?;
   Ok(())
 }
 

@@ -30,7 +30,7 @@ fn render_items(summary: &TaskRunSummary) {
         );
       }
       TaskItemOutcome::RequestError | TaskItemOutcome::ResponseReadError => {
-        let error_message = item.error_message.as_deref().unwrap_or("未知错误");
+        let error_message = item.rtn_msg.as_deref().or(item.response_text.as_deref()).unwrap_or("未知错误");
         error!(
           "[{}/{}] OpenID={} ShopCode={} {}",
           item.index, summary.requested_count, item.open_id, item.shop_code, error_message

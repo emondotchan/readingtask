@@ -36,7 +36,7 @@ export default function QuickRunResults({
         ? false
         : item.outcome === "Success";
   const getResultRtnMsg = (item: TaskItemResult) =>
-    item.rtn_msg ?? item.error_message ?? item.response_text ?? "—";
+    item.rtn_msg ?? item.response_text ?? "—";
   const getResultReadId = (item: TaskItemResult) => item.read_id ?? "None";
   const isRunning = runState === "running";
   const displayProcessedCount = processedCount;

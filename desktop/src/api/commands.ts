@@ -7,9 +7,10 @@ import type {
   TaskProgress,
   MonthlyTask,
   MonthlyTaskPlanPreview,
-  DailyProgress,
+  DailyTask,
   TaskItemResult,
   OpenIdRecord,
+  CourseRecord,
 } from "../types";
 
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
@@ -80,6 +81,13 @@ export interface UpsertFcInput {
   previous_name?: string | null;
 }
 
+export interface UpsertCourseInput {
+  course: CourseRecord;
+  previous_month?: string | null;
+  previous_course_id?: string | null;
+  previous_task_type?: string | null;
+}
+
 export async function getFcs(): Promise<FcRecord[]> {
   return invoke<FcRecord[]>("get_fcs");
 }
@@ -90,6 +98,22 @@ export async function addOrUpdateFc(input: UpsertFcInput): Promise<void> {
 
 export async function deleteFc(name: string): Promise<void> {
   return invoke<void>("delete_fc", { name });
+}
+
+export async function getCourses(): Promise<CourseRecord[]> {
+  return invoke<CourseRecord[]>("get_courses");
+}
+
+export async function addOrUpdateCourse(input: UpsertCourseInput): Promise<void> {
+  return invoke<void>("add_or_update_course", { course: input });
+}
+
+export async function deleteCourse(
+  month: string,
+  courseId: string,
+  taskType: string,
+): Promise<void> {
+  return invoke<void>("delete_course", { month, courseId, taskType });
 }
 
 export async function getShopCount(fcName: string, taskType: string): Promise<number> {
@@ -112,16 +136,20 @@ export async function createMonthlyTask(
   return invoke<MonthlyTaskPlanPreview>("create_monthly_task", { task });
 }
 
-export async function saveDailyProgress(progress: DailyProgress): Promise<void> {
-  return invoke<void>("save_daily_progress", { progress });
+export async function saveDailyTask(task: DailyTask): Promise<void> {
+  return invoke<void>("save_daily_task", { task });
+}
+
+export async function getTaskDailyTasks(taskId: string): Promise<DailyTask[]> {
+  return invoke<DailyTask[]>("get_task_daily_tasks", { taskId });
 }
 
 export async function deleteMonthlyTask(id: string): Promise<void> {
   return invoke<void>("delete_monthly_task", { id });
 }
 
-export async function getDailyProgress(taskId: string, date: string): Promise<DailyProgress | null> {
-  return invoke<DailyProgress | null>("get_daily_progress", { taskId, date });
+export async function getDailyTask(taskId: string, date: string): Promise<DailyTask | null> {
+  return invoke<DailyTask | null>("get_daily_task", { taskId, date });
 }
 
 export async function runDailyTask(taskId: string, date: string): Promise<TaskRunSummary> {

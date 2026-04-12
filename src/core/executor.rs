@@ -11,7 +11,7 @@ use super::db::DbContext;
 use super::error::AppError;
 use super::loader::load_runtime_data;
 use super::model::{
-  DailyProgress, MonthlyTask, MonthlyTaskPlanPreview, OpenIdRecord, QuickRunArchiveResult,
+  DailyTask, MonthlyTask, MonthlyTaskPlanPreview, OpenIdRecord, QuickRunArchiveResult,
   QuickRunArchiveStatus, SHOP_TYPE_AVENE, SHOP_TYPE_AVENE_KLORANE, SHOP_TYPE_KLORANE, ShopRecord,
   TaskItemOutcome, TaskItemResult, TaskProgress, TaskRunRequest, TaskRunSummary,
 };
@@ -86,7 +86,7 @@ pub fn create_monthly_task_with_plan(
 
   super::db::add_monthly_task(db, &planned_task)?;
   for daily_plan in &plan.daily_plans {
-    super::db::save_daily_progress(db, daily_plan)?;
+    super::db::save_daily_task(db, daily_plan)?;
   }
 
   Ok(plan)
@@ -130,7 +130,7 @@ where
   let started_at = now_timestamp_string();
 
   // Get all progress to compute today's target
-  let all_progress = super::db::get_all_progress_for_task(db, task_id)?;
+  let all_progress = super::db::get_all_daily_tasks_for_task(db, task_id)?;
   let total_completed: usize = all_progress.iter().map(|p| p.completed_count).sum();
 
   if total_completed >= task.total_target {
@@ -151,9 +151,9 @@ where
     task.total_target
   );
 
-  let mut today_progress = ensure_daily_progress(db, &task, date)?;
+  let mut today_progress = ensure_daily_task(db, &task, date)?;
 
-  super::db::save_daily_progress(db, &today_progress)?;
+  super::db::save_daily_task(db, &today_progress)?;
 
   if today_progress.is_locked {
     return Err(AppError::ExecutionError(
@@ -163,7 +163,7 @@ where
 
   if today_progress.completed_count >= today_progress.target_count {
     today_progress.is_locked = true;
-    super::db::save_daily_progress(db, &today_progress)?;
+    super::db::save_daily_task(db, &today_progress)?;
     return Err(AppError::ExecutionError(
       "今日任务已经完成，请明天再执行".to_string(),
     ));
@@ -279,7 +279,7 @@ where
     if item.outcome == TaskItemOutcome::Success {
       log::info!("请求 {}/{}: 成功 ({})", index + 1, to_run, shop.shop_code);
       today_progress.completed_count += 1;
-      let _ = super::db::save_daily_progress(db, &today_progress);
+      let _ = super::db::save_daily_task(db, &today_progress);
     } else {
       log::error!(
         "请求 {}/{}: 失败 ({}) - {:?}",
@@ -316,7 +316,7 @@ where
   );
 
   today_progress.is_locked = true;
-  super::db::save_daily_progress(db, &today_progress)?;
+  super::db::save_daily_task(db, &today_progress)?;
 
   Ok(TaskRunSummary {
     requested_count: to_run,
@@ -389,8 +389,7 @@ async fn execute_single_request(
           province: shop.province.clone(),
           city: shop.city.clone(),
           http_status: Some(status),
-          response_text: None,
-          error_message: Some(format!("读取响应体失败: {error}")),
+          response_text: Some(format!("读取响应体失败: {error}")),
           outcome: TaskItemOutcome::ResponseReadError,
         },
       }
@@ -406,8 +405,7 @@ async fn execute_single_request(
       province: shop.province.clone(),
       city: shop.city.clone(),
       http_status: None,
-      response_text: None,
-      error_message: Some(format!("请求失败: {error}")),
+      response_text: Some(format!("请求失败: {error}")),
       outcome: TaskItemOutcome::RequestError,
     },
   }
@@ -478,8 +476,7 @@ where
             province: shop.province.clone(),
             city: shop.city.clone(),
             http_status: Some(status),
-            response_text: None,
-            error_message: Some(format!("读取响应体失败: {error}")),
+            response_text: Some(format!("读取响应体失败: {error}")),
             outcome: TaskItemOutcome::ResponseReadError,
           },
         }
@@ -495,8 +492,7 @@ where
         province: shop.province.clone(),
         city: shop.city.clone(),
         http_status: None,
-        response_text: None,
-        error_message: Some(format!("请求失败: {error}")),
+        response_text: Some(format!("请求失败: {error}")),
         outcome: TaskItemOutcome::RequestError,
       },
     };
@@ -586,9 +582,9 @@ fn archive_quick_run_results_for_date(
     .count();
 
   if success_count > 0 {
-    let mut progress = ensure_daily_progress(db, task, run_date)?;
+    let mut progress = ensure_daily_task(db, task, run_date)?;
     progress.completed_count += success_count;
-    super::db::save_daily_progress(db, &progress)?;
+    super::db::save_daily_task(db, &progress)?;
   }
 
   Ok(QuickRunArchiveResult {
@@ -604,7 +600,6 @@ struct ClassifiedSubmitReadLogResponse {
   submit_err: Option<i32>,
   rtn_msg: Option<String>,
   read_id: Option<String>,
-  error_message: Option<String>,
   outcome: TaskItemOutcome,
 }
 
@@ -627,19 +622,12 @@ fn build_task_item_result(
     city: shop.city.clone(),
     http_status,
     response_text: Some(classified.response_text),
-    error_message: classified.error_message,
     outcome: classified.outcome,
   }
 }
 
 fn classify_submit_read_log_response(text: &str) -> ClassifiedSubmitReadLogResponse {
   if let Some(payload) = parse_submit_read_log_payload(text) {
-    let response_text = payload.rtn_msg.clone();
-    let error_message = if payload.err == 0 {
-      None
-    } else {
-      Some(response_text.clone())
-    };
     let outcome = if payload.err == 0 {
       TaskItemOutcome::Success
     } else {
@@ -647,11 +635,10 @@ fn classify_submit_read_log_response(text: &str) -> ClassifiedSubmitReadLogRespo
     };
 
     return ClassifiedSubmitReadLogResponse {
-      response_text,
+      response_text: text.to_string(),
       submit_err: Some(payload.err),
       rtn_msg: Some(payload.rtn_msg),
       read_id: payload.read_id,
-      error_message,
       outcome,
     };
   }
@@ -659,9 +646,8 @@ fn classify_submit_read_log_response(text: &str) -> ClassifiedSubmitReadLogRespo
   ClassifiedSubmitReadLogResponse {
     response_text: text.to_string(),
     submit_err: None,
-    rtn_msg: Some(text.to_string()),
+    rtn_msg: None,
     read_id: None,
-    error_message: None,
     outcome: TaskItemOutcome::Success,
   }
 }
@@ -916,21 +902,21 @@ fn build_http_client() -> Result<reqwest::Client, AppError> {
     .map_err(|error| AppError::ExecutionError(format!("创建 HTTP 客户端失败: {error}")))
 }
 
-fn ensure_daily_progress(
+fn ensure_daily_task(
   db: &DbContext,
   task: &MonthlyTask,
   date: &str,
-) -> Result<super::model::DailyProgress, AppError> {
-  if let Some(progress) = super::db::get_daily_progress(db, &task.id, date)? {
+) -> Result<super::model::DailyTask, AppError> {
+  if let Some(progress) = super::db::get_daily_task(db, &task.id, date)? {
     return Ok(progress);
   }
 
-  let all_progress = super::db::get_all_progress_for_task(db, &task.id)?;
+  let all_progress = super::db::get_all_daily_tasks_for_task(db, &task.id)?;
   let total_completed: usize = all_progress.iter().map(|p| p.completed_count).sum();
   let remaining_count = task.total_target.saturating_sub(total_completed);
   let target_count = random_daily_target(remaining_count);
 
-  Ok(DailyProgress {
+  Ok(DailyTask {
     task_id: task.id.clone(),
     date: date.to_string(),
     target_count,
@@ -992,7 +978,7 @@ fn build_monthly_task_plan(
       .iter()
       .map(|shop| shop.shop_code.clone())
       .collect::<Vec<_>>();
-    daily_plans.push(DailyProgress {
+    daily_plans.push(DailyTask {
       task_id: task.id.clone(),
       date: add_days_to_date(&start_date, offset_days as i64),
       target_count,

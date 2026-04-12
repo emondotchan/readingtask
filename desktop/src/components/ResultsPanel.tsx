@@ -334,7 +334,7 @@ export default function ResultsPanel({
                             <p className="text-sm leading-6 text-muted-foreground">
                               {isSuccess
                                 ? item.response_text || "请求已成功完成。"
-                                : item.error_message || "执行失败，未返回更多信息。"}
+                                : item.rtn_msg || item.response_text || "执行失败，未返回更多信息。"}
                             </p>
                           </div>
                         </TableCell>

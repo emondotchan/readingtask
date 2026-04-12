@@ -1,29 +1,39 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
-  Trash2Icon,
-  PlusIcon,
-  PencilIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  UploadIcon,
+  KeyRoundIcon,
+  PencilIcon,
+  PlusIcon,
   SearchIcon,
+  Trash2Icon,
+  UploadIcon,
 } from "lucide-react";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
-  getOpenIds,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   addOpenId,
   deleteOpenId,
   getFcs,
+  getOpenIds,
   importOpenIdsCsv,
   type FcRecord,
 } from "@/api/commands";
@@ -31,7 +41,13 @@ import type { OpenIdRecord } from "@/types";
 
 const PAGE_SIZE = 50;
 
-export function OpenIdManager({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function OpenIdManager({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [openIds, setOpenIds] = useState<OpenIdRecord[]>([]);
   const [fcs, setFcs] = useState<FcRecord[]>([]);
   const [newManagerId, setNewManagerId] = useState("");
@@ -40,7 +56,9 @@ export function OpenIdManager({ open, onOpenChange }: { open: boolean; onOpenCha
   const [searchTerm, setSearchTerm] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedOpenIds, setSelectedOpenIds] = useState<Set<string>>(new Set());
+  const [selectedOpenIds, setSelectedOpenIds] = useState<Set<string>>(
+    new Set(),
+  );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadData = async () => {
@@ -49,23 +67,29 @@ export function OpenIdManager({ open, onOpenChange }: { open: boolean; onOpenCha
       setOpenIds(openIdData);
       setFcs(fcData);
       setSelectedOpenIds((previous) => {
-        const availableOpenIds = new Set(openIdData.map((record) => record.open_id));
-        return new Set([...previous].filter((openId) => availableOpenIds.has(openId)));
+        const availableOpenIds = new Set(
+          openIdData.map((record) => record.open_id),
+        );
+        return new Set(
+          [...previous].filter((openId) => availableOpenIds.has(openId)),
+        );
       });
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
     }
   };
 
   useEffect(() => {
-    if (open) {
-      loadData();
-      setCurrentPage(1);
-      setFeedback(null);
-      setEditingOpenId(null);
-      setSearchTerm("");
-      setSelectedOpenIds(new Set());
+    if (!open) {
+      return;
     }
+
+    void loadData();
+    setCurrentPage(1);
+    setFeedback(null);
+    setEditingOpenId(null);
+    setSearchTerm("");
+    setSelectedOpenIds(new Set());
   }, [open]);
 
   const fcNameByManagerId = useMemo(
@@ -90,11 +114,12 @@ export function OpenIdManager({ open, onOpenChange }: { open: boolean; onOpenCha
   }, [fcNameByManagerId, openIds, searchTerm]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOpenIds.length / PAGE_SIZE));
+
   useEffect(() => {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [filteredOpenIds.length, currentPage, totalPages]);
+  }, [currentPage, totalPages]);
 
   const resetForm = () => {
     setNewManagerId("");
@@ -121,9 +146,9 @@ export function OpenIdManager({ open, onOpenChange }: { open: boolean; onOpenCha
       resetForm();
       setFeedback(editingOpenId ? "OpenID 已更新" : "OpenID 已保存");
       await loadData();
-    } catch (e) {
-      console.error(e);
-      setFeedback(e instanceof Error ? e.message : String(e));
+    } catch (error) {
+      console.error(error);
+      setFeedback(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -145,11 +170,10 @@ export function OpenIdManager({ open, onOpenChange }: { open: boolean; onOpenCha
         next.delete(id);
         return next;
       });
-      setFeedback("OpenID 已删除");
       await loadData();
-    } catch (e) {
-      console.error(e);
-      setFeedback(e instanceof Error ? e.message : String(e));
+    } catch (error) {
+      console.error(error);
+      setFeedback(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -167,9 +191,9 @@ export function OpenIdManager({ open, onOpenChange }: { open: boolean; onOpenCha
       setSelectedOpenIds(new Set());
       setFeedback(`已删除 ${selectedIds.length} 条 OpenID 记录`);
       await loadData();
-    } catch (e) {
-      console.error(e);
-      setFeedback(e instanceof Error ? e.message : String(e));
+    } catch (error) {
+      console.error(error);
+      setFeedback(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -183,15 +207,18 @@ export function OpenIdManager({ open, onOpenChange }: { open: boolean; onOpenCha
       const count = await importOpenIdsCsv(await file.text());
       setFeedback(`成功导入 ${count} 条 OpenID 记录`);
       await loadData();
-    } catch (e) {
-      console.error(e);
-      setFeedback(e instanceof Error ? e.message : String(e));
+    } catch (error) {
+      console.error(error);
+      setFeedback(error instanceof Error ? error.message : String(error));
     } finally {
       event.target.value = "";
     }
   };
 
-  const currentIds = filteredOpenIds.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const currentIds = filteredOpenIds.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
   const currentPageOpenIds = currentIds.map((record) => record.open_id);
   const selectedCount = selectedOpenIds.size;
   const allCurrentPageSelected =
@@ -226,175 +253,246 @@ export function OpenIdManager({ open, onOpenChange }: { open: boolean; onOpenCha
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl w-[95vw] sm:w-[92vw]">
-        <DialogHeader>
-          <DialogTitle>OpenID 管理</DialogTitle>
+      <DialogContent className="sm:max-w-5xl w-[95vw] max-h-[90vh] overflow-hidden gap-0 flex flex-col p-0">
+        <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
+          <DialogTitle className="flex items-center gap-2 text-xl">
+            <KeyRoundIcon className="size-5 text-muted-foreground" />
+            OpenID 管理
+          </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-muted/10">
           {feedback && (
-            <Alert>
-              <AlertTitle>操作结果</AlertTitle>
+            <Alert className="bg-background">
               <AlertDescription>{feedback}</AlertDescription>
             </Alert>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-[160px_1fr_auto_auto_auto] gap-2">
-            <Input
-              placeholder="ManagerID"
-              value={newManagerId}
-              onChange={(e) => setNewManagerId(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSave()}
-            />
-            <Input
-              placeholder="输入新的 OpenID"
-              value={newOpenId}
-              onChange={(e) => setNewOpenId(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSave()}
-            />
-            <Button onClick={handleSave}>
-              {editingOpenId ? (
-                <PencilIcon className="w-4 h-4 mr-2" />
-              ) : (
-                <PlusIcon className="w-4 h-4 mr-2" />
-              )}
-              {editingOpenId ? "保存编辑" : "新增"}
-            </Button>
-            <Button variant="outline" onClick={resetForm} disabled={!newManagerId && !newOpenId && !editingOpenId}>
-              取消
-            </Button>
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-              <UploadIcon className="w-4 h-4 mr-2" />
-              导入 CSV
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={handleImportFile}
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            CSV 第一列为 ManagerID，第二列为 OpenID。FC 列根据 ManagerID 在 FC 配置中自动匹配。
-          </p>
-          <div className="relative">
-            <SearchIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="搜索 ManagerID / FC / OpenID"
-              className="pl-9"
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-                setSelectedOpenIds(new Set());
-              }}
-            />
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
-            <span className="text-xs text-muted-foreground">
-              已选 {selectedCount} 条，当前页 {currentIds.length} 条
-            </span>
-            <div className="flex items-center gap-2">
+
+          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[180px_1fr_auto_auto_auto]">
+              <Input
+                placeholder="ManagerID"
+                value={newManagerId}
+                onChange={(event) => setNewManagerId(event.target.value)}
+                onKeyDown={(event) =>
+                  event.key === "Enter" && void handleSave()
+                }
+              />
+              <Input
+                placeholder="OpenID"
+                value={newOpenId}
+                onChange={(event) => setNewOpenId(event.target.value)}
+                onKeyDown={(event) =>
+                  event.key === "Enter" && void handleSave()
+                }
+              />
+              <Button onClick={() => void handleSave()} className="w-[110px]">
+                {editingOpenId ? (
+                  <PencilIcon className="mr-2 h-4 w-4" />
+                ) : (
+                  <PlusIcon className="mr-2 h-4 w-4" />
+                )}
+                {editingOpenId ? "更新" : "新增"}
+              </Button>
               <Button
                 variant="outline"
-                size="sm"
-                onClick={() => toggleCurrentPageSelection(!allCurrentPageSelected)}
-                disabled={currentIds.length === 0}
+                onClick={resetForm}
+                disabled={!newManagerId && !newOpenId && !editingOpenId}
               >
-                {allCurrentPageSelected ? "取消全选当前页" : "全选当前页"}
+                取消
               </Button>
               <Button
-                variant="destructive"
-                size="sm"
-                onClick={handleDeleteSelected}
-                disabled={selectedCount === 0}
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
               >
-                <Trash2Icon className="w-4 h-4 mr-2" />
-                删除选中
+                <UploadIcon className="mr-2 h-4 w-4" />
+                导入 CSV
               </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleImportFile}
+              />
             </div>
           </div>
-        </div>
-        <ScrollArea className="h-[400px] rounded-md border border-border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12 text-center">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-primary"
-                    aria-label="全选当前页 OpenID"
-                    checked={allCurrentPageSelected}
-                    onChange={(event) => toggleCurrentPageSelection(event.target.checked)}
+
+          <div className="space-y-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-semibold text-foreground">
+                  OpenID 列表
+                </h3>
+                <Badge variant="secondary" className="font-mono">
+                  {filteredOpenIds.length}
+                </Badge>
+                <Badge variant="outline" className="font-mono">
+                  已选 {selectedCount}
+                </Badge>
+              </div>
+              <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto lg:items-center">
+                <div className="relative w-full sm:w-[280px]">
+                  <SearchIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="搜索 ManagerID / FC / OpenID"
+                    className="pl-9 bg-card"
+                    value={searchTerm}
+                    onChange={(event) => {
+                      setSearchTerm(event.target.value);
+                      setCurrentPage(1);
+                      setSelectedOpenIds(new Set());
+                    }}
                   />
-                </TableHead>
-                <TableHead className="w-[140px]">ManagerID</TableHead>
-                <TableHead className="w-[160px]">FC</TableHead>
-                <TableHead className="text-left">OpenID</TableHead>
-                <TableHead className="w-[160px]">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {currentIds.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                    暂无 OpenID 记录
-                  </TableCell>
-                </TableRow>
-              ) : currentIds.map((record) => (
-                <TableRow key={record.open_id}>
-                  <TableCell className="text-center">
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-primary"
-                      aria-label={`选择 OpenID ${record.open_id}`}
-                      checked={selectedOpenIds.has(record.open_id)}
-                      onChange={(event) =>
-                        toggleOpenIdSelection(record.open_id, event.target.checked)
-                      }
-                    />
-                  </TableCell>
-                  <TableCell className="font-mono">{record.manager_id || "-"}</TableCell>
-                  <TableCell>{fcNameByManagerId.get(record.manager_id) ?? "未匹配"}</TableCell>
-                  <TableCell className="text-left font-mono">{record.open_id}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEdit(record)}>
-                        <PencilIcon className="w-4 h-4" />
-                      </Button>
-                      <Button variant="destructive" size="sm" onClick={() => handleDelete(record.open_id)}>
-                        <Trash2Icon className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </ScrollArea>
-        <div className="flex items-center justify-between mt-2">
-          <span className="text-sm text-muted-foreground">
-            {searchTerm ? `搜索结果: ${filteredOpenIds.length} 条` : `共 ${openIds.length} 条记录`}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-            >
-              <ChevronLeftIcon className="w-4 h-4" />
-            </Button>
-            <span className="text-sm text-foreground">
-              {currentPage} / {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-            >
-              <ChevronRightIcon className="w-4 h-4" />
-            </Button>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    toggleCurrentPageSelection(!allCurrentPageSelected)
+                  }
+                  disabled={currentIds.length === 0}
+                >
+                  {allCurrentPageSelected ? "取消全选当前页" : "全选当前页"}
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => void handleDeleteSelected()}
+                  disabled={selectedCount === 0}
+                >
+                  <Trash2Icon className="mr-2 h-4 w-4" />
+                  删除选中
+                </Button>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+              <ScrollArea className="h-[400px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50 hover:bg-muted/50">
+                      <TableHead className="w-12 sticky top-0 bg-muted/90 text-center">
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-primary"
+                          aria-label="全选当前页 OpenID"
+                          checked={allCurrentPageSelected}
+                          onChange={(event) =>
+                            toggleCurrentPageSelection(event.target.checked)
+                          }
+                        />
+                      </TableHead>
+                      <TableHead className="w-[160px] sticky top-0 bg-muted/90">
+                        ManagerID
+                      </TableHead>
+                      <TableHead className="w-[180px] sticky top-0 bg-muted/90">
+                        FC
+                      </TableHead>
+                      <TableHead className="sticky top-0 bg-muted/90">
+                        OpenID
+                      </TableHead>
+                      <TableHead className="w-[120px] sticky top-0 bg-muted/90 text-center">
+                        操作
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {currentIds.length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={5}
+                          className="h-32 text-center text-muted-foreground"
+                        >
+                          暂无记录
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      currentIds.map((record) => (
+                        <TableRow
+                          key={record.open_id}
+                          className="group hover:bg-muted/40"
+                        >
+                          <TableCell className="text-center">
+                            <input
+                              type="checkbox"
+                              className="size-4 accent-primary"
+                              aria-label={`选择 OpenID ${record.open_id}`}
+                              checked={selectedOpenIds.has(record.open_id)}
+                              onChange={(event) =>
+                                toggleOpenIdSelection(
+                                  record.open_id,
+                                  event.target.checked,
+                                )
+                              }
+                            />
+                          </TableCell>
+                          <TableCell className="font-mono">
+                            {record.manager_id || "-"}
+                          </TableCell>
+                          <TableCell>
+                            {fcNameByManagerId.get(record.manager_id) ??
+                              "未匹配"}
+                          </TableCell>
+                          <TableCell className="font-mono">
+                            {record.open_id}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleEdit(record)}
+                              >
+                                <PencilIcon className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() =>
+                                  void handleDelete(record.open_id)
+                                }
+                              >
+                                <Trash2Icon className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">
+                共 {filteredOpenIds.length} 条
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setCurrentPage((page) => Math.max(1, page - 1))
+                  }
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeftIcon className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-foreground">
+                  {currentPage} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setCurrentPage((page) => Math.min(totalPages, page + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                >
+                  <ChevronRightIcon className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       </DialogContent>

@@ -10,6 +10,7 @@ export interface RuntimeStatus {
   shopReady: boolean;
   provinceReady: boolean;
   fcReady: boolean;
+  courseReady: boolean;
 }
 
 export interface RunTaskInput {
@@ -50,7 +51,6 @@ export interface TaskItemResult {
   city: string;
   http_status: number | null;
   response_text: string | null;
-  error_message: string | null;
   outcome: "Success" | "RequestError" | "ResponseReadError";
 }
 
@@ -71,6 +71,12 @@ export interface OpenIdRecord {
   open_id: string;
 }
 
+export interface CourseRecord {
+  month: string;
+  course_id: string;
+  task_type: "Avene" | "Klorane";
+}
+
 export interface MonthlyTask {
   id: string;
   fc_name: string;
@@ -83,7 +89,7 @@ export interface MonthlyTask {
   shopcodes: string[];
 }
 
-export interface DailyProgress {
+export interface DailyTask {
   task_id: string;
   date: string;
   target_count: number;
@@ -96,5 +102,5 @@ export interface MonthlyTaskPlanPreview {
   eligible_shop_count: number;
   total_target: number;
   target_days: number;
-  daily_plans: DailyProgress[];
+  daily_plans: DailyTask[];
 }

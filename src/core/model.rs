@@ -66,7 +66,6 @@ pub struct TaskItemResult {
   pub city: String,
   pub http_status: Option<u16>,
   pub response_text: Option<String>,
-  pub error_message: Option<String>,
   pub outcome: TaskItemOutcome,
 }
 
@@ -133,6 +132,14 @@ pub struct FcRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CourseRecord {
+  pub month: String,
+  pub course_id: String,
+  #[serde(default = "default_task_type")]
+  pub task_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpenIdRecord {
   pub manager_id: String,
   pub open_id: String,
@@ -154,7 +161,7 @@ pub struct MonthlyTask {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DailyProgress {
+pub struct DailyTask {
   pub task_id: String,
   pub date: String,
   pub target_count: usize,
@@ -171,5 +178,5 @@ pub struct MonthlyTaskPlanPreview {
   pub total_target: usize,
   pub target_days: usize,
   #[serde(default)]
-  pub daily_plans: Vec<DailyProgress>,
+  pub daily_plans: Vec<DailyTask>,
 }

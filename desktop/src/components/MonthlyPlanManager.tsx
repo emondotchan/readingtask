@@ -13,16 +13,16 @@ import {
   getMonthlyTasks,
   createMonthlyTask,
   deleteMonthlyTask,
-  getDailyProgress,
+  getCourses,
+  getDailyTask,
   getFcs,
   getTaskResults,
   previewMonthlyTaskPlan,
   type FcRecord,
 } from "@/api/commands";
-import type { MonthlyTask, DailyProgress, MonthlyTaskPlanPreview } from "@/types";
+import type { CourseRecord, MonthlyTask, DailyTask, MonthlyTaskPlanPreview } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -76,6 +76,10 @@ function buildMonthlyTaskId(courseId: string, managerId: string) {
   return `${getTaskMonthPrefix()}:${courseId.trim()}:${managerId.trim()}`;
 }
 
+function buildCourseOptionValue(course: CourseRecord) {
+  return `${course.month}:${course.task_type}:${course.course_id}`;
+}
+
 function getResultSucceeded(item: { submit_err?: number | null; outcome: string }) {
   return item.submit_err === 0
     ? true
@@ -91,8 +95,9 @@ export default function MonthlyPlanManager({
 }) {
   const [tasks, setTasks] = useState<MonthlyTask[]>([]);
   const [fcs, setFcs] = useState<FcRecord[]>([]);
+  const [courses, setCourses] = useState<CourseRecord[]>([]);
   const [progressMap, setProgressMap] = useState<
-    Record<string, DailyProgress | null>
+    Record<string, DailyTask | null>
   >({});
   const [successCountMap, setSuccessCountMap] = useState<
     Record<string, number>
@@ -103,9 +108,8 @@ export default function MonthlyPlanManager({
   const [createError, setCreateError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [sCourseId, setCourseId] = useState("");
   const [fcName, setFcName] = useState("");
-  const [taskType, setTaskType] = useState<"Avene" | "Klorane">("Avene");
+  const [selectedCourseKey, setSelectedCourseKey] = useState("");
   const [taskPreview, setTaskPreview] = useState<MonthlyTaskPlanPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
@@ -113,7 +117,7 @@ export default function MonthlyPlanManager({
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [filterMonth, setFilterMonth] = useState(getCurrentMonth());
   const [fcFilter, setFcFilter] = useState("all");
-  const [courseIdFilter, setCourseIdFilter] = useState("");
+  const [taskTypeFilter, setTaskTypeFilter] = useState<"all" | "Avene" | "Klorane">("all");
 
   const [isStartingAll, setIsStartingAll] = useState(false);
   const startAllAbortController = useRef<AbortController | null>(null);
@@ -126,6 +130,7 @@ export default function MonthlyPlanManager({
     if (!runtimeConfigured) {
       setTasks([]);
       setFcs([]);
+      setCourses([]);
       setProgressMap({});
       setSuccessCountMap({});
       setCompletedDaysMap({});
@@ -139,6 +144,10 @@ export default function MonthlyPlanManager({
       .then((value) => ({ status: "fulfilled", value }) as const)
       .catch((reason) => ({ status: "rejected", reason }) as const);
 
+    const coursesResult = await getCourses()
+      .then((value) => ({ status: "fulfilled", value }) as const)
+      .catch((reason) => ({ status: "rejected", reason }) as const);
+
     const tasksResult = await getMonthlyTasks()
       .then((value) => ({ status: "fulfilled", value }) as const)
       .catch((reason) => ({ status: "rejected", reason }) as const);
@@ -149,6 +158,14 @@ export default function MonthlyPlanManager({
       setFcs([]);
       setLoadError("FC 经理列表加载失败，请检查配置或稍后重试。");
       console.error("Failed to load FC list", fcsResult.reason);
+    }
+
+    if (coursesResult.status === "fulfilled") {
+      setCourses(coursesResult.value);
+    } else {
+      setCourses([]);
+      setLoadError((previous) => previous ?? "课程列表加载失败，请检查配置或稍后重试。");
+      console.error("Failed to load course list", coursesResult.reason);
     }
 
     if (tasksResult.status !== "fulfilled") {
@@ -175,13 +192,13 @@ export default function MonthlyPlanManager({
     }
 
     const today = getTodayDate();
-    const progressEntries: Array<readonly [string, DailyProgress | null]> = [];
+    const progressEntries: Array<readonly [string, DailyTask | null]> = [];
     const successCountEntries: Array<readonly [string, number]> = [];
     const completedDaysEntries: Array<readonly [string, number]> = [];
 
     for (const task of ts) {
       try {
-        const progress = await getDailyProgress(task.id, today);
+        const progress = await getDailyTask(task.id, today);
         progressEntries.push([task.id, progress] as const);
       } catch (e) {
         console.error(`Failed to load progress for task ${task.id}`, e);
@@ -259,13 +276,20 @@ export default function MonthlyPlanManager({
       const taskMonth = `${taskDate.getFullYear()}-${String(taskDate.getMonth() + 1).padStart(2, "0")}`;
       const matchesMonth = taskMonth === filterMonth;
       const matchesFc = fcFilter === "all" || task.fc_name === fcFilter;
-      const matchesCourseId =
-        courseIdFilter.trim() === "" ||
-        task.s_course_id.toLowerCase().includes(courseIdFilter.trim().toLowerCase());
+      const matchesTaskType =
+        taskTypeFilter === "all" || task.task_type === taskTypeFilter;
 
-      return matchesMonth && matchesFc && matchesCourseId;
+      return matchesMonth && matchesFc && matchesTaskType;
     });
-  }, [tasks, filterMonth, fcFilter, courseIdFilter]);
+  }, [tasks, filterMonth, fcFilter, taskTypeFilter]);
+
+  const availableCourses = useMemo(() => {
+    const currentMonth = getCurrentMonth();
+    return courses.filter((course) => course.month === currentMonth);
+  }, [courses]);
+
+  const selectedCourse =
+    availableCourses.find((course) => buildCourseOptionValue(course) === selectedCourseKey) ?? null;
 
   useEffect(() => {
     if (!runtimeConfigured) {
@@ -281,12 +305,18 @@ export default function MonthlyPlanManager({
       return;
     }
 
+    if (!selectedCourse) {
+      setTaskPreview(null);
+      setPreviewLoading(false);
+      return;
+    }
+
     const previewTask: MonthlyTask = {
-      id: buildMonthlyTaskId(sCourseId || "preview", fc.manager_id),
+      id: buildMonthlyTaskId(selectedCourse.course_id, fc.manager_id),
       fc_name: fc.name,
       s_manager_id: fc.manager_id,
-      s_course_id: sCourseId || "preview",
-      task_type: taskType,
+      s_course_id: selectedCourse.course_id,
+      task_type: selectedCourse.task_type,
       total_target: 0,
       target_days: 0,
       created_at: new Date().toISOString(),
@@ -317,19 +347,19 @@ export default function MonthlyPlanManager({
     return () => {
       cancelled = true;
     };
-  }, [fcName, fcs, runtimeConfigured, sCourseId, taskType]);
+  }, [fcName, fcs, runtimeConfigured, selectedCourse]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     const fc = fcs.find((f) => f.name === fcName);
-    if (!fc || !sCourseId || !taskPreview) return;
+    if (!fc || !selectedCourse || !taskPreview) return;
 
     const newTask: MonthlyTask = {
-      id: buildMonthlyTaskId(sCourseId, fc.manager_id),
+      id: buildMonthlyTaskId(selectedCourse.course_id, fc.manager_id),
       fc_name: fc.name,
       s_manager_id: fc.manager_id,
-      s_course_id: sCourseId,
-      task_type: taskType,
+      s_course_id: selectedCourse.course_id,
+      task_type: selectedCourse.task_type,
       total_target: taskPreview.total_target,
       target_days: taskPreview.target_days,
       created_at: new Date().toISOString(),
@@ -339,9 +369,8 @@ export default function MonthlyPlanManager({
     try {
       await createMonthlyTask(newTask);
       setCreateError(null);
-      setCourseId("");
       setFcName("");
-      setTaskType("Avene");
+      setSelectedCourseKey("");
       setTaskPreview(null);
       setCreateDialogOpen(false);
       await loadData();
@@ -362,42 +391,52 @@ export default function MonthlyPlanManager({
 
   const handleStartAll = async () => {
     if (startAllAbortController.current) return;
-    startAllAbortController.current = new AbortController();
-    const signal = startAllAbortController.current.signal;
+    const controller = new AbortController();
+    startAllAbortController.current = controller;
+    const signal = controller.signal;
     setIsStartingAll(true);
 
-    const todayDate = getTodayDate();
-    const tasksToRun = filteredTasks.filter(task => {
-      const progress = progressMap[task.id];
-      if (progress?.is_locked) return false;
-      if (progress && progress.completed_count >= progress.target_count) return false;
-      const taskRun = getTaskRun(task.id);
-      if (taskRun?.runState === "running") return false;
-      return true;
-    });
+    try {
+      const todayDate = getTodayDate();
+      const tasksToRun = filteredTasks.filter((task) => {
+        const progress = progressMap[task.id];
+        if (progress?.is_locked) return false;
+        if (progress && progress.completed_count >= progress.target_count) return false;
+        const taskRun = getTaskRun(task.id);
+        if (taskRun?.runState === "running") return false;
+        return true;
+      });
 
-    for (let i = 0; i < tasksToRun.length; i++) {
-      if (signal.aborted) break;
-      const task = tasksToRun[i];
+      for (let i = 0; i < tasksToRun.length; i++) {
+        if (signal.aborted) break;
 
-      executeDaily(task.id, todayDate).catch(console.error);
+        const task = tasksToRun[i];
+        void executeDaily(task.id, todayDate).catch(console.error);
 
-      if (i < tasksToRun.length - 1) {
-        // 3 to 5 minutes (in ms)
-        const waitMs = (Math.floor(Math.random() * (5 - 3 + 1)) + 3) * 60 * 1000;
-        
-        await new Promise<void>(resolve => {
-          const timeout = setTimeout(resolve, waitMs);
-          signal.addEventListener("abort", () => {
-            clearTimeout(timeout);
-            resolve();
+        if (i < tasksToRun.length - 1) {
+          // Use a short stagger so all runnable tasks are queued quickly
+          // without forcing the user to wait minutes between starts.
+          const waitMs = Math.floor(Math.random() * (2500 - 1200 + 1)) + 1200;
+
+          await new Promise<void>((resolve) => {
+            const onAbort = () => {
+              window.clearTimeout(timeout);
+              signal.removeEventListener("abort", onAbort);
+              resolve();
+            };
+            const timeout = window.setTimeout(() => {
+              signal.removeEventListener("abort", onAbort);
+              resolve();
+            }, waitMs);
+
+            signal.addEventListener("abort", onAbort, { once: true });
           });
-        });
+        }
       }
+    } finally {
+      setIsStartingAll(false);
+      startAllAbortController.current = null;
     }
-
-    setIsStartingAll(false);
-    startAllAbortController.current = null;
   };
 
   const handleCancelStartAll = () => {
@@ -466,25 +505,6 @@ export default function MonthlyPlanManager({
                   <PlusIcon className="mr-1 size-3.5" />
                   新建计划
                 </Button>
-                <Select value={fcFilter} onValueChange={setFcFilter}>
-                  <SelectTrigger className="h-8 w-[140px] border-border bg-background/70 text-xs">
-                    <SelectValue placeholder="筛选 FC" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部 FC</SelectItem>
-                    {Array.from(new Set(tasks.map((task) => task.fc_name))).sort().map((fcName) => (
-                      <SelectItem key={fcName} value={fcName} className="text-xs">
-                        {fcName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  value={courseIdFilter}
-                  onChange={(e) => setCourseIdFilter(e.target.value)}
-                  placeholder="筛选课程 ID"
-                  className="h-8 w-[150px] bg-background/70 text-xs"
-                />
                 <Select value={filterMonth} onValueChange={setFilterMonth}>
                   <SelectTrigger className="h-8 w-[140px] border-border bg-background/70 text-xs">
                     <SelectValue placeholder="筛选月份" />
@@ -503,6 +523,29 @@ export default function MonthlyPlanManager({
                     )}
                   </SelectContent>
                 </Select>
+                <Select value={fcFilter} onValueChange={setFcFilter}>
+                  <SelectTrigger className="h-8 w-[140px] border-border bg-background/70 text-xs">
+                    <SelectValue placeholder="筛选 FC" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部 FC</SelectItem>
+                    {Array.from(new Set(tasks.map((task) => task.fc_name))).sort().map((fcName) => (
+                      <SelectItem key={fcName} value={fcName} className="text-xs">
+                        {fcName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={taskTypeFilter} onValueChange={(value) => setTaskTypeFilter(value as "all" | "Avene" | "Klorane")}>
+                  <SelectTrigger className="h-8 w-[140px] border-border bg-background/70 text-xs">
+                    <SelectValue placeholder="筛选任务类型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部类型</SelectItem>
+                    <SelectItem value="Avene">Avene</SelectItem>
+                    <SelectItem value="Klorane">Klorane</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             {loadError && (
@@ -519,9 +562,6 @@ export default function MonthlyPlanManager({
                   <TableRow className="text-muted-foreground hover:bg-transparent">
                     <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
                       FC 经理
-                    </TableHead>
-                    <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
-                      课程 ID
                     </TableHead>
                     <TableHead className="sticky top-0 z-10 bg-card text-center font-semibold text-xs uppercase tracking-wider shadow-[0_1px_0_0_var(--color-border)]">
                       今日进度
@@ -550,7 +590,7 @@ export default function MonthlyPlanManager({
                   {filteredTasks.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={9}
+                        colSpan={8}
                         className="h-32 text-center text-muted-foreground"
                       >
                         {filterMonth} 暂无计划任务
@@ -579,11 +619,6 @@ export default function MonthlyPlanManager({
                       <TableCell className="py-4 text-center">
                         <span className="font-semibold text-foreground">
                           {task.fc_name}
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-4 text-center">
-                        <span className="inline-flex rounded-md bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">
-                          {task.s_course_id}
                         </span>
                       </TableCell>
                       <TableCell className="text-center">
@@ -763,7 +798,7 @@ export default function MonthlyPlanManager({
               新建计划
             </DialogTitle>
             <DialogDescription>
-              选择 FC、课程 ID 和任务类型，系统会预生成月度执行计划。
+              选择 FC 与已配置课程，系统会预生成月度执行计划。
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto py-2 pr-1">
@@ -776,15 +811,41 @@ export default function MonthlyPlanManager({
               )}
               <FieldGroup>
                 <Field>
-                  <FieldLabel htmlFor="plan-course-id">课程 ID</FieldLabel>
-                  <Input
-                    id="plan-course-id"
-                    value={sCourseId}
-                    onChange={(e) => setCourseId(e.target.value)}
-                    placeholder="请输入课程 ID"
-                    className="h-9"
-                    required
-                  />
+                  <FieldLabel htmlFor="plan-course">课程</FieldLabel>
+                  <Select
+                    value={selectedCourseKey}
+                    onValueChange={setSelectedCourseKey}
+                    disabled={availableCourses.length === 0}
+                  >
+                    <SelectTrigger
+                      id="plan-course"
+                      className="w-full data-[size=default]:h-9"
+                    >
+                      <SelectValue
+                        placeholder={
+                          availableCourses.length === 0
+                            ? "当前月份暂无可选课程"
+                            : "选择课程"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableCourses.length === 0 ? (
+                        <SelectItem value="__empty_course__" disabled>
+                          请先在课程管理中维护本月课程
+                        </SelectItem>
+                      ) : (
+                        availableCourses.map((course) => (
+                          <SelectItem
+                            key={buildCourseOptionValue(course)}
+                            value={buildCourseOptionValue(course)}
+                          >
+                            {course.month} · {course.task_type} · {course.course_id}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
                 </Field>
 
                 <Field>
@@ -816,25 +877,6 @@ export default function MonthlyPlanManager({
                           </SelectItem>
                         ))
                       )}
-                    </SelectContent>
-                  </Select>
-                </Field>
-
-                <Field>
-                  <FieldLabel htmlFor="plan-task-type">任务类型</FieldLabel>
-                  <Select
-                    value={taskType}
-                    onValueChange={(v) => setTaskType(v as "Avene" | "Klorane")}
-                  >
-                    <SelectTrigger
-                      id="plan-task-type"
-                      className="w-full data-[size=default]:h-9"
-                    >
-                      <SelectValue placeholder="选择任务类型" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Avene">Avene</SelectItem>
-                      <SelectItem value="Klorane">Klorane</SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>
@@ -885,7 +927,7 @@ export default function MonthlyPlanManager({
                     size="default"
                     className="h-10 shadow-sm"
                     disabled={
-                      !runtimeReady || !!runtimeError || !sCourseId || !fcName || !taskPreview || previewLoading
+                      !runtimeReady || !!runtimeError || !selectedCourse || !fcName || !taskPreview || previewLoading
                     }
                   >
                     <PlusIcon className="mr-2 size-4" />
