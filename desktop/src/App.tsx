@@ -9,6 +9,7 @@ import { useTaskRunner } from "@/features/useTaskRunner";
 import { useMonthlyRunner } from "@/features/useMonthlyRunner";
 import { useCallback } from "react";
 import { ModeToggle } from "@/components/ModeToggle";
+import { SqlitePathButton } from "@/components/SqlitePathButton";
 
 export default function App() {
   const taskRunner = useTaskRunner();
@@ -38,7 +39,7 @@ export default function App() {
 
   return (
     <main className="relative min-h-svh bg-background transition-colors duration-300">
-      <div className="relative mx-auto flex min-h-svh max-w-370 flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
+      <div className="relative mx-auto flex min-h-svh max-w-370 flex-col gap-5 px-4 py-6 md:px-6 lg:px-8">
         {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="flex flex-col gap-1">
@@ -54,6 +55,10 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3 ml-auto">
+            <SqlitePathButton
+              status={runtimeStatus}
+              onSaved={handleRuntimeStatusChanged}
+            />
             <ModeToggle />
           </div>
         </div>
@@ -65,7 +70,7 @@ export default function App() {
           onRuntimeStatusChanged={handleRuntimeStatusChanged}
         />
 
-        <Tabs defaultValue="monthly" className="flex flex-col gap-6">
+        <Tabs defaultValue="monthly" className="flex flex-col gap-5">
           <TabsList className="grid h-10 w-100 grid-cols-2 self-start border-none bg-muted/70">
             <TabsTrigger
               value="monthly"
