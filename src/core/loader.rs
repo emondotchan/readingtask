@@ -15,13 +15,13 @@ pub(crate) fn load_runtime_data(db: &DbContext) -> Result<RuntimeData, AppError>
     .map_err(|e: r2d2::Error| AppError::ResourceUnavailableError(e.to_string()))?;
 
   let mut stmt = conn
-    .prepare("SELECT open_id, manager_id FROM open_ids")
+    .prepare("SELECT open_id, fc_name FROM open_ids")
     .map_err(|e: rusqlite::Error| AppError::ResourceUnavailableError(e.to_string()))?;
   let open_ids = stmt
     .query_map([], |row: &rusqlite::Row| {
       Ok(OpenIdRecord {
         open_id: row.get(0)?,
-        manager_id: row.get(1)?,
+        fc_name: row.get(1)?,
       })
     })
     .map_err(|e: rusqlite::Error| AppError::ResourceUnavailableError(e.to_string()))?

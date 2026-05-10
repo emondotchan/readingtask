@@ -18,6 +18,12 @@ impl AppPaths {
   }
 }
 
+impl Default for AppPaths {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 fn default_db_path() -> Option<std::path::PathBuf> {
   std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".reading.sqlite"))
 }
@@ -26,6 +32,8 @@ fn default_db_path() -> Option<std::path::PathBuf> {
 pub struct TaskRunRequest {
   pub s_course_id: String,
   pub s_manager_id: String,
+  #[serde(default)]
+  pub reading_url: String,
   pub fc: String,
   pub count: usize,
   pub shopcodes: Vec<String>,
@@ -112,6 +120,8 @@ pub struct ShopRecord {
   pub province: String,
   pub city: String,
   pub shop_code: String,
+  #[serde(default)]
+  pub shop_name: String,
   pub fc: Option<String>,
   #[serde(default = "default_shop_type")]
   pub shop_type: u8,
@@ -125,10 +135,13 @@ fn default_task_type() -> String {
   "Avene".to_string()
 }
 
+pub fn default_daily_task_run_status() -> String {
+  "not_started".to_string()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FcRecord {
   pub name: String,
-  pub manager_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,7 +154,7 @@ pub struct CourseRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpenIdRecord {
-  pub manager_id: String,
+  pub fc_name: String,
   pub open_id: String,
 }
 
@@ -151,6 +164,8 @@ pub struct MonthlyTask {
   pub fc_name: String,
   pub s_manager_id: String,
   pub s_course_id: String,
+  #[serde(default)]
+  pub reading_url: String,
   #[serde(default = "default_task_type")]
   pub task_type: String,
   pub total_target: usize,
@@ -158,6 +173,8 @@ pub struct MonthlyTask {
   pub created_at: String,
   #[serde(default)]
   pub shopcodes: Vec<String>,
+  #[serde(default)]
+  pub excluded_open_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +185,8 @@ pub struct DailyTask {
   pub completed_count: usize,
   #[serde(default)]
   pub is_locked: bool,
+  #[serde(default = "default_daily_task_run_status")]
+  pub run_status: String,
   #[serde(default)]
   pub shopcodes: Vec<String>,
 }
