@@ -3,10 +3,9 @@
 # Rust
 **/*.rs.bk
 
-# Desktop frontend
-/desktop/node_modules/
-/desktop/dist/
-/desktop/.vite/
+# Frontend
+/web/node_modules/
+/web/dist/
 
 # Tauri
 /desktop/src-tauri/target/
