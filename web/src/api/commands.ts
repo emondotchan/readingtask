@@ -32,16 +32,15 @@ async function readError(response: Response) {
   };
 }
 
-async function requestJson<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
+async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(init.headers ?? {}),
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -55,10 +54,7 @@ async function requestJson<T>(
   return response.json() as Promise<T>;
 }
 
-async function requestVoid(
-  path: string,
-  init: RequestInit = {},
-): Promise<void> {
+async function requestVoid(path: string, init: RequestInit = {}): Promise<void> {
   await requestJson<undefined>(path, init);
 }
 
@@ -73,9 +69,7 @@ export async function setSqlitePath(sqlitePath: string): Promise<RuntimeStatus> 
   });
 }
 
-export async function runReadingTask(
-  input: RunTaskInput,
-): Promise<TaskRunSummary> {
+export async function runReadingTask(input: RunTaskInput): Promise<TaskRunSummary> {
   return requestJson<TaskRunSummary>("/run-reading-task", {
     method: "POST",
     body: JSON.stringify(input),
@@ -119,10 +113,7 @@ export async function importShops(shops: ShopRecord[]): Promise<number> {
   });
 }
 
-export async function updateShopTypes(
-  shopCodes: string[],
-  shopType: number,
-): Promise<number> {
+export async function updateShopTypes(shopCodes: string[], shopType: number): Promise<number> {
   return requestJson<number>("/shops/shop-types", {
     method: "POST",
     body: JSON.stringify({ shopCodes, shopType }),
@@ -195,10 +186,7 @@ export async function deleteCourse(
   });
 }
 
-export async function getShopCount(
-  fcName: string,
-  taskType: string,
-): Promise<number> {
+export async function getShopCount(fcName: string, taskType: string): Promise<number> {
   const params = new URLSearchParams({
     fcName,
     task_type: taskType,
@@ -211,18 +199,14 @@ export async function getMonthlyTasks(): Promise<MonthlyTask[]> {
   return requestJson<MonthlyTask[]>("/monthly-tasks");
 }
 
-export async function previewMonthlyTaskPlan(
-  task: MonthlyTask,
-): Promise<MonthlyTaskPlanPreview> {
+export async function previewMonthlyTaskPlan(task: MonthlyTask): Promise<MonthlyTaskPlanPreview> {
   return requestJson<MonthlyTaskPlanPreview>("/monthly-tasks/preview", {
     method: "POST",
     body: JSON.stringify(task),
   });
 }
 
-export async function createMonthlyTask(
-  task: MonthlyTask,
-): Promise<MonthlyTaskPlanPreview> {
+export async function createMonthlyTask(task: MonthlyTask): Promise<MonthlyTaskPlanPreview> {
   return requestJson<MonthlyTaskPlanPreview>("/monthly-tasks", {
     method: "POST",
     body: JSON.stringify(task),
@@ -237,9 +221,7 @@ export async function saveDailyTask(task: DailyTask): Promise<void> {
 }
 
 export async function getTaskDailyTasks(taskId: string): Promise<DailyTask[]> {
-  return requestJson<DailyTask[]>(
-    `/daily-tasks/${encodeURIComponent(taskId)}/all`,
-  );
+  return requestJson<DailyTask[]>(`/daily-tasks/${encodeURIComponent(taskId)}/all`);
 }
 
 export async function deleteMonthlyTask(id: string): Promise<void> {
@@ -248,20 +230,28 @@ export async function deleteMonthlyTask(id: string): Promise<void> {
   });
 }
 
-export async function getDailyTask(
-  taskId: string,
-  date: string,
-): Promise<DailyTask | null> {
+export async function getDailyTask(taskId: string, date: string): Promise<DailyTask | null> {
   const params = new URLSearchParams({ date });
   return requestJson<DailyTask | null>(
     `/daily-tasks/${encodeURIComponent(taskId)}?${params.toString()}`,
   );
 }
 
-export async function runDailyTask(
+export async function getPendingDailyTask(taskId: string): Promise<DailyTask | null> {
+  return requestJson<DailyTask | null>(`/daily-tasks/${encodeURIComponent(taskId)}/pending`);
+}
+
+export async function rescheduleMonthlyTaskPlans(
   taskId: string,
-  date: string,
-): Promise<TaskRunSummary> {
+  startDate?: string,
+): Promise<DailyTask[]> {
+  return requestJson<DailyTask[]>(`/monthly-tasks/${encodeURIComponent(taskId)}/reschedule`, {
+    method: "POST",
+    body: JSON.stringify({ startDate }),
+  });
+}
+
+export async function runDailyTask(taskId: string, date: string): Promise<TaskRunSummary> {
   const params = new URLSearchParams({ date });
   return requestJson<TaskRunSummary>(
     `/daily-tasks/${encodeURIComponent(taskId)}/run?${params.toString()}`,
@@ -284,14 +274,18 @@ export async function getDailyTaskRunStatuses(): Promise<DailyTaskRunSnapshot[]>
 }
 
 export async function pauseDailyTask(taskId: string): Promise<boolean> {
-  return requestJson<boolean>(
-    `/daily-tasks/${encodeURIComponent(taskId)}/pause`,
-    { method: "POST" },
-  );
+  return requestJson<boolean>(`/daily-tasks/${encodeURIComponent(taskId)}/pause`, {
+    method: "POST",
+  });
 }
 
 export async function getTaskResults(taskId: string): Promise<TaskItemResult[]> {
-  return requestJson<TaskItemResult[]>(
-    `/tasks/${encodeURIComponent(taskId)}/results`,
+  return requestJson<TaskItemResult[]>(`/tasks/${encodeURIComponent(taskId)}/results`);
+}
+
+export async function retryTaskResult(taskId: string, resultId: number): Promise<TaskItemResult> {
+  return requestJson<TaskItemResult>(
+    `/tasks/${encodeURIComponent(taskId)}/results/${resultId}/retry`,
+    { method: "POST" },
   );
 }

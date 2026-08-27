@@ -83,6 +83,8 @@ cargo build --release
 cd web && npm run build
 ```
 
+Linux 构建会通过 `.cargo/config.toml` 使用 `clang` 加 `mold` 链接器。请先安装 `clang` 和 `mold`，macOS 本机构建不受该配置影响。
+
 说明：
 
 - 后端启动时会在用户主目录下管理 `~/.reading.sqlite`

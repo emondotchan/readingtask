@@ -85,6 +85,12 @@ pub struct UpdateShopTypesInput {
   pub shop_type: u8,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReschedulePlansInput {
+  pub start_date: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct DailyTaskQuery {
   pub date: String,
@@ -485,8 +491,16 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     .route("/monthly-tasks/preview", post(preview_monthly_task_plan))
     .route("/monthly-tasks/{id}", delete(delete_monthly_task))
     .route(
+      "/monthly-tasks/{id}/reschedule",
+      post(reschedule_monthly_task_plans),
+    )
+    .route(
       "/daily-tasks/{task_id}",
       get(get_daily_task).post(save_daily_task),
+    )
+    .route(
+      "/daily-tasks/{task_id}/pending",
+      get(get_pending_daily_task),
     )
     .route("/daily-tasks/{task_id}/all", get(get_task_daily_tasks))
     .route("/daily-tasks/batch-run", post(batch_run_daily_tasks))
@@ -494,6 +508,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     .route("/daily-tasks/{task_id}/run", post(run_daily_task))
     .route("/daily-tasks/{task_id}/pause", post(pause_daily_task))
     .route("/tasks/{task_id}/results", get(get_task_results))
+    .route(
+      "/tasks/{task_id}/results/{result_id}/retry",
+      post(retry_task_result),
+    )
     .with_state(state.clone());
 
   let app = Router::new()
@@ -505,11 +523,15 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
   let addr: SocketAddr = std::env::var("READING_TASK_BIND")
     .ok()
     .and_then(|value| value.parse().ok())
-    .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 10086)));
+    .unwrap_or_else(default_bind_addr);
   let listener = TcpListener::bind(addr).await?;
   log::info!("web server listening on http://{}", listener.local_addr()?);
   axum::serve(listener, app).await?;
   Ok(())
+}
+
+fn default_bind_addr() -> SocketAddr {
+  SocketAddr::from(([0, 0, 0, 0], 10086))
 }
 
 async fn serve_embedded_static(uri: Uri) -> Response {
@@ -810,6 +832,21 @@ async fn delete_monthly_task(
   Ok(StatusCode::NO_CONTENT)
 }
 
+async fn reschedule_monthly_task_plans(
+  State(state): State<AppState>,
+  Path(id): Path<String>,
+  Json(input): Json<Option<ReschedulePlansInput>>,
+) -> Result<Json<Vec<DailyTask>>, CommandError> {
+  let db = state.resolve_db()?;
+  let start_date = input
+    .and_then(|i| i.start_date)
+    .filter(|s| !s.trim().is_empty())
+    .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+  let updated = reading_task::reschedule_unfinished_daily_tasks(&db, &id, &start_date)
+    .map_err(CommandError::from)?;
+  Ok(Json(updated))
+}
+
 async fn get_daily_task(
   State(state): State<AppState>,
   Path(task_id): Path<String>,
@@ -819,6 +856,16 @@ async fn get_daily_task(
   let progress =
     reading_task::get_daily_task(&db, &task_id, &query.date).map_err(CommandError::from)?;
   Ok(Json(progress))
+}
+
+async fn get_pending_daily_task(
+  State(state): State<AppState>,
+  Path(task_id): Path<String>,
+) -> Result<Json<Option<DailyTask>>, CommandError> {
+  let db = state.resolve_db()?;
+  let pending =
+    reading_task::get_first_pending_daily_task(&db, &task_id).map_err(CommandError::from)?;
+  Ok(Json(pending))
 }
 
 async fn get_task_daily_tasks(
@@ -841,8 +888,8 @@ async fn save_daily_task(
     .map_err(CommandError::from)?
     .ok_or_else(|| resource_error("未找到对应的每日任务进度"))?;
 
-  if existing.is_locked {
-    return Err(validation_error("已执行的每日任务不可编辑"));
+  if existing.completed_count >= existing.target_count {
+    return Err(validation_error("已完成的每日任务不可编辑"));
   }
 
   let updated = DailyTask {
@@ -860,13 +907,23 @@ async fn run_daily_task(
   Query(query): Query<DailyTaskQuery>,
 ) -> Result<Json<TaskRunSummary>, CommandError> {
   let db = state.resolve_db()?;
+  let target_date = if query.date == "auto" || query.date.trim().is_empty() {
+    reading_task::get_first_pending_daily_task(&db, &task_id)
+      .ok()
+      .flatten()
+      .map(|t| t.date)
+      .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string())
+  } else {
+    query.date
+  };
+
   let pause_flag = state.pause_registry.register(&task_id);
-  state.run_registry.start(&task_id, &query.date);
+  state.run_registry.start(&task_id, &target_date);
   let run_registry = Arc::clone(&state.run_registry);
   let summary = reading_task::run_daily_task_with_progress_controlled(
     &db,
     &task_id,
-    &query.date,
+    &target_date,
     move |progress| {
       run_registry.record_progress(progress);
     },
@@ -891,13 +948,13 @@ async fn run_daily_task(
     }
     state
       .run_registry
-      .finish_error(&task_id, &query.date, command_error.clone());
+      .finish_error(&task_id, &target_date, command_error.clone());
     command_error
   })?;
 
   state
     .run_registry
-    .finish_success(&task_id, &query.date, summary.clone());
+    .finish_success(&task_id, &target_date, summary.clone());
   log_command(log::Level::Debug, "run_daily_task", "执行日常任务成功");
   Ok(Json(summary))
 }
@@ -916,11 +973,26 @@ async fn batch_run_daily_tasks(
       continue;
     }
 
+    let date = if input.date == "auto" || input.date.trim().is_empty() {
+      reading_task::get_first_pending_daily_task(&db, &task_id)
+        .ok()
+        .flatten()
+        .map(|t| t.date)
+        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string())
+    } else if let Ok(Some(pending)) = reading_task::get_first_pending_daily_task(&db, &task_id) {
+      if pending.date <= input.date {
+        pending.date
+      } else {
+        input.date.clone()
+      }
+    } else {
+      input.date.clone()
+    };
+
     accepted_count += 1;
-    state.run_registry.start(&task_id, &input.date);
+    state.run_registry.start(&task_id, &date);
     let state_for_task = state.clone();
     let db_for_task = db.clone();
-    let date = input.date.clone();
     tokio::spawn(async move {
       run_daily_task_background(state_for_task, db_for_task, task_id, date).await;
     });
@@ -990,19 +1062,28 @@ async fn pause_daily_task(
   State(state): State<AppState>,
   Path(task_id): Path<String>,
 ) -> Result<Json<bool>, CommandError> {
-  let paused = state.pause_registry.pause(&task_id);
-  if paused {
-    if let Some(date) = state.run_registry.mark_paused(&task_id)
-      && let Ok(db) = state.resolve_db()
-      && let Err(error) = reading_task::update_daily_task_run_status(&db, &task_id, &date, "paused")
-    {
-      log_command(
-        log::Level::Error,
-        "pause_daily_task",
-        format!("更新任务暂停状态失败: {}", error),
-      );
-    }
+  let signaled_running_task = state.pause_registry.pause(&task_id);
+  let marked_running_snapshot = state.run_registry.mark_paused(&task_id);
+  let marked_running_snapshot_exists = marked_running_snapshot.is_some();
+
+  let db = state.resolve_db()?;
+  if let Some(date) = marked_running_snapshot.as_deref()
+    && let Err(error) = reading_task::update_daily_task_run_status(&db, &task_id, date, "paused")
+  {
+    log_command(
+      log::Level::Error,
+      "pause_daily_task",
+      format!("更新任务暂停状态失败: {}", error),
+    );
   }
+
+  // Always ensure any running daily task rows in the database are paused.
+  // This guarantees consistency and immediate responsiveness in the UI.
+  let updated =
+    reading_task::pause_running_daily_tasks_for_task(&db, &task_id).map_err(CommandError::from)?;
+  let paused_stale_rows = updated > 0;
+
+  let paused = signaled_running_task || marked_running_snapshot_exists || paused_stale_rows;
   Ok(Json(paused))
 }
 
@@ -1013,4 +1094,25 @@ async fn get_task_results(
   let db = state.resolve_db()?;
   let results = reading_task::get_task_results(&db, &task_id).map_err(CommandError::from)?;
   Ok(Json(results))
+}
+
+async fn retry_task_result(
+  State(state): State<AppState>,
+  Path((task_id, result_id)): Path<(String, i64)>,
+) -> Result<Json<reading_task::TaskItemResult>, CommandError> {
+  let db = state.resolve_db()?;
+  let result = reading_task::retry_task_result(&db, &task_id, result_id)
+    .await
+    .map_err(CommandError::from)?;
+  Ok(Json(result))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn default_bind_addr_listens_on_all_interfaces() {
+    assert_eq!(default_bind_addr(), SocketAddr::from(([0, 0, 0, 0], 10086)));
+  }
 }

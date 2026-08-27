@@ -12,12 +12,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -75,9 +70,7 @@ export function OpenIdManager({
   const [searchTerm, setSearchTerm] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedOpenIds, setSelectedOpenIds] = useState<Set<string>>(
-    new Set(),
-  );
+  const [selectedOpenIds, setSelectedOpenIds] = useState<Set<string>>(new Set());
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
   const [batchFcName, setBatchFcName] = useState("");
   const [batchOpenIdsText, setBatchOpenIdsText] = useState("");
@@ -89,12 +82,8 @@ export function OpenIdManager({
       setOpenIds(openIdData);
       setFcs(fcData);
       setSelectedOpenIds((previous) => {
-        const availableOpenIds = new Set(
-          openIdData.map((record) => record.open_id),
-        );
-        return new Set(
-          [...previous].filter((openId) => availableOpenIds.has(openId)),
-        );
+        const availableOpenIds = new Set(openIdData.map((record) => record.open_id));
+        return new Set([...previous].filter((openId) => availableOpenIds.has(openId)));
       });
     } catch (error) {
       console.error(error);
@@ -126,8 +115,7 @@ export function OpenIdManager({
 
     return openIds.filter(
       (record) =>
-        record.open_id.toLowerCase().includes(term) ||
-        record.fc_name.toLowerCase().includes(term),
+        record.open_id.toLowerCase().includes(term) || record.fc_name.toLowerCase().includes(term),
     );
   }, [openIds, searchTerm]);
 
@@ -234,9 +222,7 @@ export function OpenIdManager({
     }
 
     const existingOpenIds = new Set(openIds.map((record) => record.open_id));
-    const uniqueNewOpenIds = parsedOpenIds.filter(
-      (openId) => !existingOpenIds.has(openId),
-    );
+    const uniqueNewOpenIds = parsedOpenIds.filter((openId) => !existingOpenIds.has(openId));
     const duplicateCount = parsedOpenIds.length - uniqueNewOpenIds.length;
 
     if (uniqueNewOpenIds.length === 0) {
@@ -271,10 +257,7 @@ export function OpenIdManager({
     }
   };
 
-  const currentIds = filteredOpenIds.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
-  );
+  const currentIds = filteredOpenIds.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const currentPageOpenIds = currentIds.map((record) => record.open_id);
   const selectedCount = selectedOpenIds.size;
   const allCurrentPageSelected =
@@ -344,9 +327,7 @@ export function OpenIdManager({
                 placeholder="OpenID"
                 value={newOpenId}
                 onChange={(event) => setNewOpenId(event.target.value)}
-                onKeyDown={(event) =>
-                  event.key === "Enter" && void handleSave()
-                }
+                onKeyDown={(event) => event.key === "Enter" && void handleSave()}
               />
               <Button onClick={() => void handleSave()} className="w-[110px]">
                 {editingOpenId ? (
@@ -379,9 +360,7 @@ export function OpenIdManager({
           <div className="space-y-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-sm font-semibold text-foreground">
-                  OpenID 列表
-                </h3>
+                <h3 className="text-sm font-semibold text-foreground">OpenID 列表</h3>
                 <Badge variant="secondary" className="font-mono">
                   {filteredOpenIds.length}
                 </Badge>
@@ -405,9 +384,7 @@ export function OpenIdManager({
                 </div>
                 <Button
                   variant="outline"
-                  onClick={() =>
-                    toggleCurrentPageSelection(!allCurrentPageSelected)
-                  }
+                  onClick={() => toggleCurrentPageSelection(!allCurrentPageSelected)}
                   disabled={currentIds.length === 0}
                 >
                   {allCurrentPageSelected ? "取消全选当前页" : "全选当前页"}
@@ -434,17 +411,11 @@ export function OpenIdManager({
                           className="size-4 accent-primary"
                           aria-label="全选当前页 OpenID"
                           checked={allCurrentPageSelected}
-                          onChange={(event) =>
-                            toggleCurrentPageSelection(event.target.checked)
-                          }
+                          onChange={(event) => toggleCurrentPageSelection(event.target.checked)}
                         />
                       </TableHead>
-                      <TableHead className="w-[160px] sticky top-0 bg-muted/90">
-                        FC
-                      </TableHead>
-                      <TableHead className="sticky top-0 bg-muted/90">
-                        OpenID
-                      </TableHead>
+                      <TableHead className="w-[160px] sticky top-0 bg-muted/90">FC</TableHead>
+                      <TableHead className="sticky top-0 bg-muted/90">OpenID</TableHead>
                       <TableHead className="w-[120px] sticky top-0 bg-muted/90 text-center">
                         操作
                       </TableHead>
@@ -453,19 +424,13 @@ export function OpenIdManager({
                   <TableBody>
                     {currentIds.length === 0 ? (
                       <TableRow>
-                        <TableCell
-                          colSpan={4}
-                          className="h-32 text-center text-muted-foreground"
-                        >
+                        <TableCell colSpan={4} className="h-32 text-center text-muted-foreground">
                           暂无记录
                         </TableCell>
                       </TableRow>
                     ) : (
                       currentIds.map((record) => (
-                        <TableRow
-                          key={record.open_id}
-                          className="group hover:bg-muted/40"
-                        >
+                        <TableRow key={record.open_id} className="group hover:bg-muted/40">
                           <TableCell className="text-center">
                             <input
                               type="checkbox"
@@ -473,19 +438,12 @@ export function OpenIdManager({
                               aria-label={`选择 OpenID ${record.open_id}`}
                               checked={selectedOpenIds.has(record.open_id)}
                               onChange={(event) =>
-                                toggleOpenIdSelection(
-                                  record.open_id,
-                                  event.target.checked,
-                                )
+                                toggleOpenIdSelection(record.open_id, event.target.checked)
                               }
                             />
                           </TableCell>
-                          <TableCell className="font-medium">
-                            {record.fc_name || "-"}
-                          </TableCell>
-                          <TableCell className="font-mono">
-                            {record.open_id}
-                          </TableCell>
+                          <TableCell className="font-medium">{record.fc_name || "-"}</TableCell>
+                          <TableCell className="font-mono">{record.open_id}</TableCell>
                           <TableCell className="text-center">
                             <div className="flex items-center justify-center gap-2">
                               <Button
@@ -498,9 +456,7 @@ export function OpenIdManager({
                               <Button
                                 variant="destructive"
                                 size="sm"
-                                onClick={() =>
-                                  void handleDelete(record.open_id)
-                                }
+                                onClick={() => void handleDelete(record.open_id)}
                               >
                                 <Trash2Icon className="h-4 w-4" />
                               </Button>
@@ -515,16 +471,12 @@ export function OpenIdManager({
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
-                共 {filteredOpenIds.length} 条
-              </span>
+              <span className="text-sm text-muted-foreground">共 {filteredOpenIds.length} 条</span>
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    setCurrentPage((page) => Math.max(1, page - 1))
-                  }
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                   disabled={currentPage === 1}
                 >
                   <ChevronLeftIcon className="h-4 w-4" />
@@ -535,9 +487,7 @@ export function OpenIdManager({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    setCurrentPage((page) => Math.min(totalPages, page + 1))
-                  }
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
                   disabled={currentPage === totalPages}
                 >
                   <ChevronRightIcon className="h-4 w-4" />

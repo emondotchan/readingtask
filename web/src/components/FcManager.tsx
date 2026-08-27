@@ -12,12 +12,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -129,10 +124,7 @@ export function FcManager({
     setFeedback(null);
   };
 
-  const currentFcs = filteredFcs.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
-  );
+  const currentFcs = filteredFcs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -152,16 +144,11 @@ export function FcManager({
           )}
 
           <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <form
-              className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]"
-              onSubmit={handleSave}
-            >
+            <form className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]" onSubmit={handleSave}>
               <Input
                 placeholder="姓名"
                 value={formData.name}
-                onChange={(event) =>
-                  setFormData({ ...formData, name: event.target.value })
-                }
+                onChange={(event) => setFormData({ ...formData, name: event.target.value })}
               />
               <div className="flex gap-2">
                 <Button type="submit" className="w-[100px]">
@@ -184,9 +171,7 @@ export function FcManager({
           <div className="space-y-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-foreground">
-                  FC 列表
-                </h3>
+                <h3 className="text-sm font-semibold text-foreground">FC 列表</h3>
                 <Badge variant="secondary" className="font-mono">
                   {filteredFcs.length}
                 </Badge>
@@ -210,9 +195,7 @@ export function FcManager({
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50 hover:bg-muted/50">
-                      <TableHead className="w-[180px] sticky top-0 bg-muted/90">
-                        姓名
-                      </TableHead>
+                      <TableHead className="w-[180px] sticky top-0 bg-muted/90">姓名</TableHead>
                       <TableHead className="w-[120px] sticky top-0 bg-muted/90 text-center">
                         操作
                       </TableHead>
@@ -221,29 +204,17 @@ export function FcManager({
                   <TableBody>
                     {currentFcs.length === 0 ? (
                       <TableRow>
-                        <TableCell
-                          colSpan={2}
-                          className="h-32 text-center text-muted-foreground"
-                        >
+                        <TableCell colSpan={2} className="h-32 text-center text-muted-foreground">
                           暂无记录
                         </TableCell>
                       </TableRow>
                     ) : (
                       currentFcs.map((fc) => (
-                        <TableRow
-                          key={fc.name}
-                          className="group hover:bg-muted/40"
-                        >
-                          <TableCell className="font-medium">
-                            {fc.name}
-                          </TableCell>
+                        <TableRow key={fc.name} className="group hover:bg-muted/40">
+                          <TableCell className="font-medium">{fc.name}</TableCell>
                           <TableCell className="text-center">
                             <div className="flex items-center justify-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleEdit(fc)}
-                              >
+                              <Button variant="outline" size="sm" onClick={() => handleEdit(fc)}>
                                 <PencilIcon className="h-4 w-4" />
                               </Button>
                               <Button
@@ -264,16 +235,12 @@ export function FcManager({
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
-                共 {filteredFcs.length} 条
-              </span>
+              <span className="text-sm text-muted-foreground">共 {filteredFcs.length} 条</span>
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    setCurrentPage((page) => Math.max(1, page - 1))
-                  }
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                   disabled={currentPage === 1}
                 >
                   <ChevronLeftIcon className="h-4 w-4" />
@@ -284,9 +251,7 @@ export function FcManager({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    setCurrentPage((page) => Math.min(totalPages, page + 1))
-                  }
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
                   disabled={currentPage === totalPages}
                 >
                   <ChevronRightIcon className="h-4 w-4" />

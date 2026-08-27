@@ -31,10 +31,7 @@ export default function App() {
   } = taskRunner;
 
   const handleRuntimeStatusChanged = useCallback(async () => {
-    await Promise.all([
-      taskRunner.refreshRuntimeStatus(),
-      monthlyRunner.refreshRuntimeStatus(),
-    ]);
+    await Promise.all([taskRunner.refreshRuntimeStatus(), monthlyRunner.refreshRuntimeStatus()]);
   }, [monthlyRunner, taskRunner]);
 
   return (
@@ -48,17 +45,12 @@ export default function App() {
             </h1>
             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <ActivityIcon className="size-3.5 text-emerald-500" />
-              <span className="uppercase tracking-widest text-[10px]">
-                Core Engine Active
-              </span>
+              <span className="uppercase tracking-widest text-[10px]">Core Engine Active</span>
             </div>
           </div>
 
           <div className="flex items-center gap-3 ml-auto">
-            <SqlitePathButton
-              status={runtimeStatus}
-              onSaved={handleRuntimeStatusChanged}
-            />
+            <SqlitePathButton status={runtimeStatus} onSaved={handleRuntimeStatusChanged} />
             <ModeToggle />
           </div>
         </div>
@@ -72,17 +64,11 @@ export default function App() {
 
         <Tabs defaultValue="monthly" className="flex flex-col gap-5">
           <TabsList className="grid h-10 w-100 grid-cols-2 self-start border-none bg-muted/70">
-            <TabsTrigger
-              value="monthly"
-              className="gap-2 shadow-none data-[state=active]:bg-card"
-            >
+            <TabsTrigger value="monthly" className="gap-2 shadow-none data-[state=active]:bg-card">
               <ListTodoIcon className="w-4 h-4" />
               月度计划
             </TabsTrigger>
-            <TabsTrigger
-              value="quick"
-              className="gap-2 shadow-none data-[state=active]:bg-card"
-            >
+            <TabsTrigger value="quick" className="gap-2 shadow-none data-[state=active]:bg-card">
               <ZapIcon className="w-4 h-4" />
               快捷执行
             </TabsTrigger>
@@ -124,7 +110,6 @@ export default function App() {
           </TabsContent>
         </Tabs>
       </div>
-
     </main>
   );
 }

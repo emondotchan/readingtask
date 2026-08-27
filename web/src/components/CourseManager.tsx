@@ -11,12 +11,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -35,12 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Field, FieldLabel } from "@/components/ui/field";
-import {
-  Empty,
-  EmptyHeader,
-  EmptyTitle,
-  EmptyMedia,
-} from "@/components/ui/empty";
+import { Empty, EmptyHeader, EmptyTitle, EmptyMedia } from "@/components/ui/empty";
 import {
   addOrUpdateCourse,
   deleteCourse,
@@ -81,9 +71,7 @@ export function CourseManager({
     task_type: CourseRecord["task_type"];
   } | null>(null);
   const [monthFilter, setMonthFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState<"all" | "Avene" | "Klorane">(
-    "all",
-  );
+  const [typeFilter, setTypeFilter] = useState<"all" | "Avene" | "Klorane">("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -116,19 +104,15 @@ export function CourseManager({
 
   const monthOptions = useMemo(
     () =>
-      Array.from(new Set(courses.map((course) => course.month))).sort((a, b) =>
-        b.localeCompare(a),
-      ),
+      Array.from(new Set(courses.map((course) => course.month))).sort((a, b) => b.localeCompare(a)),
     [courses],
   );
 
   const filteredCourses = useMemo(
     () =>
       courses.filter((course) => {
-        const matchesMonth =
-          monthFilter === "all" || course.month === monthFilter;
-        const matchesType =
-          typeFilter === "all" || course.task_type === typeFilter;
+        const matchesMonth = monthFilter === "all" || course.month === monthFilter;
+        const matchesType = typeFilter === "all" || course.task_type === typeFilter;
         return matchesMonth && matchesType;
       }),
     [courses, monthFilter, typeFilter],
@@ -291,9 +275,7 @@ export function CourseManager({
           <div className="flex flex-col gap-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-foreground">
-                  课程列表
-                </h3>
+                <h3 className="text-sm font-semibold text-foreground">课程列表</h3>
                 <Badge variant="secondary" className="font-mono">
                   {filteredCourses.length}
                 </Badge>
@@ -363,10 +345,7 @@ export function CourseManager({
                         <TableCell colSpan={4} className="h-[300px]">
                           <Empty className="border-0 shadow-none">
                             <EmptyHeader>
-                              <EmptyMedia
-                                variant="icon"
-                                className="bg-muted text-muted-foreground"
-                              >
+                              <EmptyMedia variant="icon" className="bg-muted text-muted-foreground">
                                 <BookOpenIcon className="h-8 w-8 opacity-50" />
                               </EmptyMedia>
                               <EmptyTitle>未找到匹配的课程</EmptyTitle>
@@ -430,17 +409,14 @@ export function CourseManager({
             {filteredCourses.length > 0 && (
               <div className="flex items-center justify-between pb-2">
                 <span className="text-xs text-muted-foreground">
-                  第 {currentPage} / {totalPages} 页，共{" "}
-                  {filteredCourses.length} 条记录
+                  第 {currentPage} / {totalPages} 页，共 {filteredCourses.length} 条记录
                 </span>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
                     className="h-8 w-8 p-0"
-                    onClick={() =>
-                      setCurrentPage((page) => Math.max(1, page - 1))
-                    }
+                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                     disabled={currentPage === 1}
                   >
                     <ChevronLeftIcon className="h-4 w-4" />
@@ -449,9 +425,7 @@ export function CourseManager({
                     variant="outline"
                     size="sm"
                     className="h-8 w-8 p-0"
-                    onClick={() =>
-                      setCurrentPage((page) => Math.min(totalPages, page + 1))
-                    }
+                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
                     disabled={currentPage === totalPages}
                   >
                     <ChevronRightIcon className="h-4 w-4" />

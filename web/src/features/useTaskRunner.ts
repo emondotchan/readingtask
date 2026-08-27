@@ -1,16 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
-import {
-  getRuntimeStatus,
-  runReadingTask,
-} from "@/api/commands";
+import { getRuntimeStatus, runReadingTask } from "@/api/commands";
 import { parseShopcodesInput } from "@/lib/utils";
-import type {
-  CommandError,
-  RuntimeStatus,
-  TaskItemResult,
-  TaskRunSummary,
-} from "@/types";
+import type { CommandError, RuntimeStatus, TaskItemResult, TaskRunSummary } from "@/types";
 
 export type RunState = "idle" | "running" | "completed" | "error";
 
@@ -52,9 +44,7 @@ export function useTaskRunner() {
         setRuntimeError(null);
       })
       .catch((reason) => {
-        setRuntimeError(
-          typeof reason === "string" ? reason : String(reason)
-        );
+        setRuntimeError(typeof reason === "string" ? reason : String(reason));
       });
   }, []);
 
@@ -62,18 +52,15 @@ export function useTaskRunner() {
     void refreshRuntimeStatus();
   }, [refreshRuntimeStatus]);
 
-  const updateField = useCallback(
-    <K extends keyof FormState>(field: K, value: FormState[K]) => {
-      setForm((previous) => ({ ...previous, [field]: value }));
-    },
-    []
-  );
+  const updateField = useCallback(<K extends keyof FormState>(field: K, value: FormState[K]) => {
+    setForm((previous) => ({ ...previous, [field]: value }));
+  }, []);
 
   const runtimeReady = Boolean(
     runtimeStatus?.openIdsReady &&
-      runtimeStatus?.shopReady &&
-      runtimeStatus?.provinceReady &&
-      runtimeStatus?.fcReady
+    runtimeStatus?.shopReady &&
+    runtimeStatus?.provinceReady &&
+    runtimeStatus?.fcReady,
   );
 
   const hasValidInputs =

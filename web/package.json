@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 1420",
     "build": "tsc && vite build",
+    "lint": "oxlint src --react-plugin --jsx-a11y-plugin",
+    "format": "oxfmt src --write",
+    "format:check": "oxfmt src --check",
     "preview": "vite preview",
     "dev:api": "cd .. && cargo run"
   },
@@ -28,6 +31,8 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "oxfmt": "^0.58.0",
+    "oxlint": "^1.73.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.4.5",
     "vite": "^8.0.7"

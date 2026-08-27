@@ -20,20 +20,20 @@ import {
   HistoryIcon,
   PencilIcon,
   PlayIcon,
+  RotateCcwIcon,
   LockIcon,
+  SquareIcon,
+  CalendarDaysIcon,
 } from "lucide-react";
 import {
   getTaskDailyTasks,
   getTaskResults,
   previewMonthlyTaskPlan,
+  rescheduleMonthlyTaskPlans,
+  retryTaskResult,
   saveDailyTask,
 } from "@/api/commands";
-import type {
-  DailyTask,
-  MonthlyTask,
-  MonthlyTaskPlanPreview,
-  TaskItemResult,
-} from "@/types";
+import type { DailyTask, MonthlyTask, MonthlyTaskPlanPreview, TaskItemResult } from "@/types";
 import { cn, getErrorMessage } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
@@ -50,8 +50,11 @@ import type { MonthlyTaskRunState } from "@/features/useMonthlyRunner";
 
 interface Props {
   task: MonthlyTask | null;
+  monthlyCompletionTarget?: number | null;
   onBack: () => void;
   currentRun?: MonthlyTaskRunState;
+  executeDaily?: (taskId: string, date: string) => Promise<void>;
+  pauseDaily?: (taskId: string) => Promise<void>;
 }
 
 const TASK_TYPE_BADGE_CLASSNAME = {
@@ -62,16 +65,11 @@ const TASK_TYPE_BADGE_CLASSNAME = {
 } as const;
 
 function getDailyTaskProgressTotal(task: DailyTask) {
-  return task.shopcodes.length;
+  return task.target_count;
 }
 
 function isCompletedDay(task: DailyTask) {
-  const progressTotal = getDailyTaskProgressTotal(task);
-  return (
-    task.run_status === "completed" ||
-    task.is_locked ||
-    (progressTotal > 0 && task.completed_count >= progressTotal)
-  );
+  return task.completed_count >= task.target_count;
 }
 
 const DAILY_TASK_STATUS_META = {
@@ -96,7 +94,14 @@ const DAILY_TASK_STATUS_META = {
   },
 } as const;
 
-export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
+export function TaskStatusDialog({
+  task,
+  monthlyCompletionTarget,
+  onBack,
+  currentRun,
+  executeDaily,
+  pauseDaily,
+}: Props) {
   const [historyResults, setHistoryResults] = useState<TaskItemResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState("all");
@@ -108,29 +113,48 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
   const [editorText, setEditorText] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savingDay, setSavingDay] = useState<string | null>(null);
+  const [rescheduling, setRescheduling] = useState(false);
+  const [rescheduleMessage, setRescheduleMessage] = useState<string | null>(null);
+  const [retryingResultKey, setRetryingResultKey] = useState<string | null>(null);
+  const [retryMessage, setRetryMessage] = useState<string | null>(null);
+  const [batchRetryProgress, setBatchRetryProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
   const pageSize = 10;
 
-  const getResultSucceeded = (item: TaskItemResult) =>
-    item.submit_err === 0
-      ? true
-      : typeof item.submit_err === "number"
-        ? false
-        : item.outcome === "Success";
-  const getResultDate = (item: TaskItemResult) =>
-    item.executed_date ?? (currentRun?.date ? `${currentRun.date} 00:00:00` : null);
-  const getResultDay = (item: TaskItemResult) => {
-    const raw = getResultDate(item);
-    return raw ? raw.slice(0, 10) : null;
-  };
-  const getResultDateDisplay = (item: TaskItemResult) => {
-    const raw = getResultDate(item);
-    if (!raw) {
-      return "—";
-    }
-    return raw.length === 10 ? `${raw} 00:00:00` : raw;
-  };
-  const getResultRtnMsg = (item: TaskItemResult) =>
-    item.rtn_msg ?? item.response_text ?? "—";
+  const getResultSucceeded = useCallback(
+    (item: TaskItemResult) =>
+      item.submit_err === 0
+        ? true
+        : typeof item.submit_err === "number"
+          ? false
+          : item.outcome === "Success",
+    [],
+  );
+  const getResultDate = useCallback(
+    (item: TaskItemResult) =>
+      item.executed_date ?? (currentRun?.date ? `${currentRun.date} 00:00:00` : null),
+    [currentRun?.date],
+  );
+  const getResultDay = useCallback(
+    (item: TaskItemResult) => {
+      const raw = getResultDate(item);
+      return raw ? raw.slice(0, 10) : null;
+    },
+    [getResultDate],
+  );
+  const getResultDateDisplay = useCallback(
+    (item: TaskItemResult) => {
+      const raw = getResultDate(item);
+      if (!raw) {
+        return "—";
+      }
+      return raw.length === 10 ? `${raw} 00:00:00` : raw;
+    },
+    [getResultDate],
+  );
+  const getResultRtnMsg = (item: TaskItemResult) => item.rtn_msg ?? item.response_text ?? "—";
   const getResultReadId = (item: TaskItemResult) => item.read_id ?? "None";
 
   const loadHistoryResults = useCallback(async () => {
@@ -150,6 +174,45 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
       setLoading(false);
     }
   }, [task]);
+
+  const getResultKey = useCallback(
+    (item: TaskItemResult) =>
+      item.result_id?.toString() ??
+      [getResultDate(item) ?? "unknown-date", item.index, item.open_id, item.shop_code].join(":"),
+    [getResultDate],
+  );
+
+  const applyRetriedResult = useCallback((retried: TaskItemResult) => {
+    setHistoryResults((previous) => [
+      retried,
+      ...previous.filter((result) => result.result_id !== retried.result_id),
+    ]);
+  }, []);
+
+  const handleRetryResult = useCallback(
+    async (item: TaskItemResult) => {
+      if (!task || item.result_id == null) return;
+
+      const resultKey = getResultKey(item);
+      setRetryingResultKey(resultKey);
+      setRetryMessage(null);
+      try {
+        const retried = await retryTaskResult(task.id, item.result_id);
+        applyRetriedResult(retried);
+        setCurrentPage(1);
+        setRetryMessage(
+          getResultSucceeded(retried)
+            ? `门店 ${item.shop_code} 重做成功`
+            : `门店 ${item.shop_code} 重做后仍失败`,
+        );
+      } catch (error) {
+        setRetryMessage(`门店 ${item.shop_code} 重做失败：${getErrorMessage(error)}`);
+      } finally {
+        setRetryingResultKey(null);
+      }
+    },
+    [applyRetriedResult, getResultKey, getResultSucceeded, task],
+  );
 
   const loadDailyPlans = useCallback(async () => {
     if (!task) {
@@ -192,6 +255,9 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
     setEditorText("");
     setSaveError(null);
     setSavingDay(null);
+    setRetryingResultKey(null);
+    setRetryMessage(null);
+    setBatchRetryProgress(null);
   }, [task?.id]);
 
   const isRunning = currentRun?.runState === "running";
@@ -221,7 +287,7 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
         seen.add(key);
         return true;
       });
-  }, [currentRun, historyResults, isRunning]);
+  }, [currentRun, getResultDate, historyResults, isRunning]);
 
   const dateOptions = useMemo(
     () =>
@@ -232,7 +298,7 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
             .filter((value): value is string => Boolean(value)),
         ),
       ).sort((a, b) => b.localeCompare(a)),
-    [mergedHistoryResults],
+    [getResultDay, mergedHistoryResults],
   );
 
   const filteredHistoryResults = useMemo(() => {
@@ -240,15 +306,61 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
       return mergedHistoryResults;
     }
 
-    return mergedHistoryResults.filter(
-      (item) => getResultDay(item) === selectedDate,
-    );
-  }, [mergedHistoryResults, selectedDate]);
+    return mergedHistoryResults.filter((item) => getResultDay(item) === selectedDate);
+  }, [getResultDay, mergedHistoryResults, selectedDate]);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredHistoryResults.length / pageSize),
+  const retryableFilteredResults = useMemo(
+    () =>
+      filteredHistoryResults.filter((item) => item.result_id != null && !getResultSucceeded(item)),
+    [filteredHistoryResults, getResultSucceeded],
   );
+
+  const handleBatchRetry = useCallback(async () => {
+    if (!task || isRunning || retryableFilteredResults.length === 0) return;
+
+    const total = retryableFilteredResults.length;
+    let successCount = 0;
+    let failedCount = 0;
+    let requestErrorCount = 0;
+    setBatchRetryProgress({ completed: 0, total });
+    setRetryMessage(null);
+
+    for (const [index, item] of retryableFilteredResults.entries()) {
+      if (item.result_id == null) continue;
+
+      setRetryingResultKey(getResultKey(item));
+      try {
+        const retried = await retryTaskResult(task.id, item.result_id);
+        applyRetriedResult(retried);
+        if (getResultSucceeded(retried)) {
+          successCount += 1;
+        } else {
+          failedCount += 1;
+        }
+      } catch (error) {
+        console.error(error);
+        requestErrorCount += 1;
+      } finally {
+        setBatchRetryProgress({ completed: index + 1, total });
+      }
+    }
+
+    setCurrentPage(1);
+    setRetryingResultKey(null);
+    setBatchRetryProgress(null);
+    setRetryMessage(
+      `批量重做完成：成功 ${successCount}，仍失败 ${failedCount}，请求异常 ${requestErrorCount}`,
+    );
+  }, [
+    applyRetriedResult,
+    getResultKey,
+    getResultSucceeded,
+    isRunning,
+    retryableFilteredResults,
+    task,
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredHistoryResults.length / pageSize));
 
   const paginatedResults = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -264,25 +376,53 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
     [dailyPlans],
   );
 
-  const failedShopcodesByDate = useMemo(() => {
-    const entries = new Map<string, Set<string>>();
+  const shopReadingStatusMap = useMemo(() => {
+    const entries = new Map<string, "success" | "failed">();
     for (const item of mergedHistoryResults) {
-      if (getResultSucceeded(item)) {
+      if (entries.has(item.shop_code)) {
         continue;
       }
-
-      const day = getResultDay(item);
-      if (!day) {
-        continue;
-      }
-
-      const shopcodes = entries.get(day) ?? new Set<string>();
-      shopcodes.add(item.shop_code);
-      entries.set(day, shopcodes);
+      const hasReadId = Boolean(item.read_id?.trim());
+      entries.set(item.shop_code, getResultSucceeded(item) && hasReadId ? "success" : "failed");
     }
 
     return entries;
-  }, [mergedHistoryResults]);
+  }, [getResultSucceeded, mergedHistoryResults]);
+
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }, []);
+
+  const hasPastUnfinishedPlans = useMemo(
+    () => dailyPlans.some((d) => d.date < todayStr && !isCompletedDay(d) && !d.is_locked),
+    [dailyPlans, todayStr],
+  );
+
+  const firstPendingDay = useMemo(
+    () => dailyPlans.find((d) => !isCompletedDay(d) && !d.is_locked),
+    [dailyPlans],
+  );
+
+  const handleReschedule = useCallback(async () => {
+    if (!task) return;
+    setRescheduling(true);
+    setRescheduleMessage(null);
+    try {
+      await rescheduleMonthlyTaskPlans(task.id);
+      await loadDailyPlans();
+      setRescheduleMessage("计划已成功顺延至今日起");
+      setTimeout(() => setRescheduleMessage(null), 3000);
+    } catch (error) {
+      console.error("Failed to reschedule daily tasks", error);
+      setRescheduleMessage("顺延失败: " + getErrorMessage(error));
+    } finally {
+      setRescheduling(false);
+    }
+  }, [loadDailyPlans, task]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -308,12 +448,7 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
           <CardHeader className="border-b border-border pb-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-fit"
-                  onClick={onBack}
-                >
+                <Button variant="outline" size="sm" className="w-fit" onClick={onBack}>
                   <ArrowLeftIcon className="mr-1 size-3.5" />
                   返回列表
                 </Button>
@@ -332,8 +467,7 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                       </Badge>
                     </CardTitle>
                     <p className="font-mono text-xs text-muted-foreground">
-                      taskId: {task.id} • courseId: {task.s_course_id} • UID:{" "}
-                      {task.s_manager_id}
+                      taskId: {task.id} • courseId: {task.s_course_id} • UID: {task.s_manager_id}
                     </p>
                   </div>
                 </div>
@@ -355,27 +489,19 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <PlayIcon className="size-4 animate-spin-slow text-sky-600 dark:text-sky-400" />
-                    <h3 className="font-semibold text-sky-900 dark:text-sky-100">
-                      当前任务进度
-                    </h3>
+                    <h3 className="font-semibold text-sky-900 dark:text-sky-100">当前任务进度</h3>
                   </div>
                   <span className="text-sm font-mono font-bold text-sky-700 dark:text-sky-300">
                     {currentRun.processedCount} / {currentRun.requestedCount}
                   </span>
                 </div>
-                <Progress
-                  value={progressValue}
-                  className="h-2 bg-sky-100 dark:bg-sky-950/50"
-                />
+                <Progress value={progressValue} className="h-2 bg-sky-100 dark:bg-sky-950/50" />
                 {currentRun.items.length > 0 && (
                   <div className="flex items-center gap-2 text-xs text-sky-600 dark:text-sky-300">
                     <span className="shrink-0">最新结果:</span>
                     <span className="truncate opacity-80">
-                      门店{" "}
-                      {currentRun.items[currentRun.items.length - 1].shop_code} —{" "}
-                      {getResultSucceeded(
-                        currentRun.items[currentRun.items.length - 1],
-                      )
+                      门店 {currentRun.items[currentRun.items.length - 1].shop_code} —{" "}
+                      {getResultSucceeded(currentRun.items[currentRun.items.length - 1])
                         ? "成功"
                         : "失败"}
                     </span>
@@ -387,11 +513,11 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <div className="flex h-24 flex-col justify-between rounded-xl border border-border bg-card p-4 shadow-sm">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  月度总目标
+                  月度完成门槛
                 </span>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-bold text-foreground">
-                    {task.total_target}
+                    {monthlyCompletionTarget ?? task.total_target}
                   </span>
                   <span className="text-xs text-muted-foreground">阅读</span>
                 </div>
@@ -401,12 +527,8 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                   完成天数
                 </span>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-foreground">
-                    {completedDays}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    / {task.target_days} 天
-                  </span>
+                  <span className="text-2xl font-bold text-foreground">{completedDays}</span>
+                  <span className="text-xs text-muted-foreground">/ {task.target_days} 天</span>
                 </div>
               </div>
               <div className="flex h-24 flex-col justify-between rounded-xl border border-emerald-200 bg-emerald-50/20 p-4 shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
@@ -417,9 +539,7 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                   <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-300">
                     {completedCount}
                   </span>
-                  <span className="text-xs text-emerald-600/60 dark:text-emerald-300/70">
-                    阅读
-                  </span>
+                  <span className="text-xs text-emerald-600/60 dark:text-emerald-300/70">阅读</span>
                 </div>
               </div>
               <div className="flex h-24 flex-col justify-between rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -437,30 +557,70 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
 
             <div className="space-y-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="text-sm font-semibold text-foreground">
-                  每日任务明细
-                </h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setDailyPlansExpanded((previous) => {
-                      const next = !previous;
-                      if (!next) {
-                        setEditingDay(null);
-                        setSaveError(null);
-                      }
-                      return next;
-                    });
-                  }}
-                >
-                  {dailyPlansExpanded ? (
-                    <ChevronUpIcon className="mr-1 size-3.5" />
-                  ) : (
-                    <ChevronDownIcon className="mr-1 size-3.5" />
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-foreground">每日任务明细</h3>
+                  {rescheduleMessage && (
+                    <Badge variant="secondary" className="text-xs">
+                      {rescheduleMessage}
+                    </Badge>
                   )}
-                  {dailyPlansExpanded ? "收起明细" : "展开明细"}
-                </Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {hasPastUnfinishedPlans && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300"
+                      onClick={handleReschedule}
+                      disabled={rescheduling || isRunning}
+                      title="将过去未完成/暂停的计划顺延至今日起排期"
+                    >
+                      {rescheduling ? (
+                        <Spinner className="mr-1 size-3.5" />
+                      ) : (
+                        <CalendarDaysIcon className="mr-1 size-3.5" />
+                      )}
+                      顺延未完成计划至今日起
+                    </Button>
+                  )}
+                  {firstPendingDay && !isRunning && (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      className="shadow-sm"
+                      onClick={() => {
+                        if (!dailyPlansExpanded) {
+                          setDailyPlansExpanded(true);
+                        }
+                        void executeDaily?.(task.id, firstPendingDay.date);
+                      }}
+                    >
+                      <PlayIcon className="mr-1 size-3.5" />
+                      执行待办 ({firstPendingDay.date})
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDailyPlansExpanded((previous) => {
+                        const next = !previous;
+                        if (!next) {
+                          setEditingDay(null);
+                          setSaveError(null);
+                        }
+                        return next;
+                      });
+                    }}
+                  >
+                    {dailyPlansExpanded ? (
+                      <ChevronUpIcon className="mr-1 size-3.5" />
+                    ) : (
+                      <ChevronDownIcon className="mr-1 size-3.5" />
+                    )}
+                    {dailyPlansExpanded ? "收起明细" : "展开明细"}
+                  </Button>
+                </div>
               </div>
 
               {!dailyPlansExpanded ? null : dailyPlansLoading ? (
@@ -474,11 +634,22 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
               ) : (
                 <div className="grid gap-4">
                   {dailyPlans.map((day) => {
-                    const failedShopcodes = failedShopcodesByDate.get(day.date) ?? new Set<string>();
+                    const successfulShopCount = day.shopcodes.filter(
+                      (shopcode) => shopReadingStatusMap.get(shopcode) === "success",
+                    ).length;
+                    const failedShopCount = day.shopcodes.filter(
+                      (shopcode) => shopReadingStatusMap.get(shopcode) === "failed",
+                    ).length;
                     const isEditing = editingDay === day.date;
                     const isLocked = day.is_locked;
                     const progressTotal = getDailyTaskProgressTotal(day);
                     const statusMeta = DAILY_TASK_STATUS_META[day.run_status];
+                    const isRunningDay =
+                      currentRun?.runState === "running" && currentRun?.date === day.date;
+                    const isPausedDay =
+                      currentRun?.date === day.date
+                        ? currentRun?.runState === "paused"
+                        : day.run_status === "paused";
 
                     return (
                       <div
@@ -491,16 +662,11 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                               <span className="rounded-md bg-muted px-2 py-1 font-mono text-sm text-foreground">
                                 {day.date}
                               </span>
-                              <Badge variant="secondary">
-                                目标 {progressTotal} 家
-                              </Badge>
+                              <Badge variant="secondary">目标 {progressTotal} 家</Badge>
                               <Badge variant="outline">
                                 已完成 {day.completed_count}/{progressTotal}
                               </Badge>
-                              <Badge
-                                variant="outline"
-                                className={statusMeta.className}
-                              >
+                              <Badge variant="outline" className={statusMeta.className}>
                                 {statusMeta.label}
                               </Badge>
                               {isLocked ? (
@@ -511,33 +677,43 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                               ) : (
                                 <Badge variant="outline">可编辑</Badge>
                               )}
-                              {failedShopcodes.size > 0 && (
+                              {successfulShopCount > 0 && (
+                                <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300">
+                                  <CheckCircle2Icon className="mr-1 size-3" />
+                                  成功 {successfulShopCount}
+                                </Badge>
+                              )}
+                              {failedShopCount > 0 && (
                                 <Badge className="border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/20 dark:text-rose-300">
                                   <AlertCircleIcon className="mr-1 size-3" />
-                                  错误 {failedShopcodes.size}
+                                  失败 {failedShopCount}
                                 </Badge>
                               )}
                             </div>
 
                             <div className="flex flex-wrap gap-2">
                               {day.shopcodes.length === 0 ? (
-                                <span className="text-sm text-muted-foreground">
-                                  暂无 shopcode
-                                </span>
+                                <span className="text-sm text-muted-foreground">暂无 shopcode</span>
                               ) : (
-                                day.shopcodes.map((shopcode) => (
-                                  <span
-                                    key={`${day.date}:${shopcode}`}
-                                    className={cn(
-                                      "inline-flex rounded-full border px-2.5 py-1 font-mono text-xs",
-                                      failedShopcodes.has(shopcode)
-                                        ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/20 dark:text-rose-300"
-                                        : "border-border bg-muted/50 text-muted-foreground",
-                                    )}
-                                  >
-                                    {shopcode}
-                                  </span>
-                                ))
+                                day.shopcodes.map((shopcode) => {
+                                  const readingStatus = shopReadingStatusMap.get(shopcode);
+                                  return (
+                                    <Badge
+                                      key={`${day.date}:${shopcode}`}
+                                      variant="outline"
+                                      className={cn(
+                                        "font-mono",
+                                        readingStatus === "success"
+                                          ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300"
+                                          : readingStatus === "failed"
+                                            ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/20 dark:text-rose-300"
+                                            : "border-border bg-muted/50 text-muted-foreground",
+                                      )}
+                                    >
+                                      {shopcode}
+                                    </Badge>
+                                  );
+                                })
                               )}
                             </div>
                           </div>
@@ -548,18 +724,49 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                                 已完成，不可编辑
                               </Button>
                             ) : (
-                              <Button
-                                size="sm"
-                                variant={isEditing ? "secondary" : "outline"}
-                                onClick={() => {
-                                  setEditingDay(day.date);
-                                  setEditorText(day.shopcodes.join("\n"));
-                                  setSaveError(null);
-                                }}
-                              >
-                                <PencilIcon className="mr-1 size-3.5" />
-                                编辑
-                              </Button>
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  className="shadow-sm"
+                                  disabled={
+                                    currentRun !== undefined &&
+                                    currentRun.runState === "running" &&
+                                    currentRun.date !== day.date
+                                  }
+                                  onClick={() => {
+                                    if (isRunningDay) {
+                                      void pauseDaily?.(task.id);
+                                      return;
+                                    }
+                                    void executeDaily?.(task.id, day.date);
+                                  }}
+                                >
+                                  {isRunningDay ? (
+                                    <>
+                                      <SquareIcon className="mr-1 size-3.5" />
+                                      暂停
+                                    </>
+                                  ) : (
+                                    <>
+                                      <PlayIcon className="mr-1 size-3.5" />
+                                      {isPausedDay ? "继续" : "执行"}
+                                    </>
+                                  )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant={isEditing ? "secondary" : "outline"}
+                                  onClick={() => {
+                                    setEditingDay(day.date);
+                                    setEditorText(day.shopcodes.join("\n"));
+                                    setSaveError(null);
+                                  }}
+                                >
+                                  <PencilIcon className="mr-1 size-3.5" />
+                                  编辑
+                                </Button>
+                              </>
                             )}
                           </div>
                         </div>
@@ -630,14 +837,33 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <HistoryIcon className="size-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold text-foreground">
-                    执行历史明细
-                  </h3>
+                  <h3 className="text-sm font-semibold text-foreground">执行历史明细</h3>
                   <span className="text-xs text-muted-foreground">
                     共 {filteredHistoryResults.length} 条
                   </span>
+                  {retryMessage ? <Badge variant="secondary">{retryMessage}</Badge> : null}
                 </div>
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleBatchRetry()}
+                    disabled={
+                      loading ||
+                      isRunning ||
+                      retryingResultKey !== null ||
+                      retryableFilteredResults.length === 0
+                    }
+                  >
+                    {batchRetryProgress ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <RotateCcwIcon data-icon="inline-start" />
+                    )}
+                    {batchRetryProgress
+                      ? `批量重做 ${batchRetryProgress.completed}/${batchRetryProgress.total}`
+                      : `批量重做 (${retryableFilteredResults.length})`}
+                  </Button>
                   <span className="text-xs text-muted-foreground">按天筛选</span>
                   <Select value={selectedDate} onValueChange={setSelectedDate}>
                     <SelectTrigger className="w-45 bg-background">
@@ -677,24 +903,25 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                         <TableHead className="w-32 text-left text-[11px] font-bold uppercase tracking-wider">
                           ReadID
                         </TableHead>
+                        <TableHead className="w-24 text-center text-[11px] font-bold uppercase tracking-wider">
+                          操作
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {loading ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="h-48 text-center">
+                          <TableCell colSpan={7} className="h-48 text-center">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                               <Spinner className="size-5" />
-                              <span className="text-xs">
-                                正在调取数据库记录...
-                              </span>
+                              <span className="text-xs">正在调取数据库记录...</span>
                             </div>
                           </TableCell>
                         </TableRow>
                       ) : mergedHistoryResults.length === 0 ? (
                         <TableRow>
                           <TableCell
-                            colSpan={6}
+                            colSpan={7}
                             className="h-48 text-center text-xs italic text-muted-foreground"
                           >
                             暂无任何执行历史记录
@@ -703,7 +930,7 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                       ) : filteredHistoryResults.length === 0 ? (
                         <TableRow>
                           <TableCell
-                            colSpan={6}
+                            colSpan={7}
                             className="h-48 text-center text-xs italic text-muted-foreground"
                           >
                             当前日期筛选下暂无执行记录
@@ -712,6 +939,8 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                       ) : (
                         paginatedResults.map((item, idx) => {
                           const isSuccess = getResultSucceeded(item);
+                          const resultKey = getResultKey(item);
+                          const isRetrying = retryingResultKey === resultKey;
                           return (
                             <TableRow
                               key={[
@@ -724,7 +953,7 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                               className="transition-colors hover:bg-muted/40"
                             >
                               <TableCell className="py-3 text-center">
-                                {isSuccess ? (
+                                {isSuccess || item.result_id == null ? (
                                   <div className="mx-auto flex size-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300">
                                     <CheckCircle2Icon className="size-3" />
                                   </div>
@@ -762,6 +991,28 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                                   {getResultReadId(item)}
                                 </code>
                               </TableCell>
+                              <TableCell className="py-3 text-center">
+                                {isSuccess ? (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void handleRetryResult(item)}
+                                    disabled={
+                                      retryingResultKey !== null || batchRetryProgress !== null
+                                    }
+                                    aria-label={`重做门店 ${item.shop_code} 的失败请求`}
+                                  >
+                                    {isRetrying ? (
+                                      <Spinner data-icon="inline-start" />
+                                    ) : (
+                                      <RotateCcwIcon data-icon="inline-start" />
+                                    )}
+                                    {isRetrying ? "重做中" : "重做"}
+                                  </Button>
+                                )}
+                              </TableCell>
                             </TableRow>
                           );
                         })
@@ -779,9 +1030,7 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        setCurrentPage((page) => Math.max(1, page - 1))
-                      }
+                      onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                       disabled={currentPage <= 1}
                     >
                       上一页
@@ -789,9 +1038,7 @@ export function TaskStatusDialog({ task, onBack, currentRun }: Props) {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        setCurrentPage((page) => Math.min(totalPages, page + 1))
-                      }
+                      onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
                       disabled={currentPage >= totalPages}
                     >
                       下一页

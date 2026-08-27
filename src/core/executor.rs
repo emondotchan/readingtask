@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::Local;
+use chrono::{Local, Timelike};
 use rand::RngExt;
 use rand::seq::SliceRandom;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
@@ -13,7 +13,8 @@ use super::loader::load_runtime_data;
 use super::model::{
   DailyTask, MonthlyTask, MonthlyTaskPlanPreview, OpenIdRecord, QuickRunArchiveResult,
   QuickRunArchiveStatus, SHOP_TYPE_AVENE, SHOP_TYPE_AVENE_KLORANE, SHOP_TYPE_KLORANE, ShopRecord,
-  TaskItemOutcome, TaskItemResult, TaskProgress, TaskRunRequest, TaskRunSummary,
+  TaskItemOutcome, TaskItemResult, TaskProgress, TaskRunRequest, TaskRunSummary, add_days_to_date,
+  civil_from_days,
 };
 
 const SUBMIT_READ_LOG_URL: &str =
@@ -22,6 +23,8 @@ const MIN_DAILY_TARGET: usize = 15;
 const MAX_DAILY_TARGET: usize = 25;
 const GENERATED_OPEN_ID_PREFIX: &str = "o-kP6s";
 const GENERATED_OPEN_ID_LEN: usize = 28;
+const AVENE_MONTHLY_COMPLETION_PERCENT: usize = 65;
+const KLORANE_MONTHLY_COMPLETION_PERCENT: usize = 85;
 
 #[derive(Debug, Serialize)]
 struct SubmitReadLogBody<'a> {
@@ -140,6 +143,11 @@ where
     .ok_or_else(|| AppError::ResourceUnavailableError(format!("未找到月度任务: {}", task_id)))?;
 
   let runtime_data = load_runtime_data(db)?;
+  let monthly_completion_target = calculate_monthly_completion_target_for_task(
+    &runtime_data.shops,
+    &task.fc_name,
+    &task.task_type,
+  );
   let client = build_http_client()?;
   let started_at = now_timestamp_string();
 
@@ -148,18 +156,40 @@ where
   let total_completed: usize = all_progress.iter().map(|p| p.completed_count).sum();
   let completed_days = all_progress
     .iter()
-    .filter(|progress| progress.is_locked || progress.completed_count >= progress.target_count)
+    .filter(|progress| is_daily_task_completed(progress))
     .count();
+  let existing_daily_task = all_progress
+    .iter()
+    .find(|progress| progress.date == date)
+    .cloned();
+  let has_incomplete_daily_task = existing_daily_task
+    .as_ref()
+    .is_some_and(|progress| !is_daily_task_completed(progress));
 
-  if completed_days >= task.target_days {
+  if monthly_completion_target > 0
+    && total_completed >= monthly_completion_target
+    && !has_incomplete_daily_task
+  {
     log::warn!(
-      "任务 {} ({}) 已全部完成 (completed_days: {}, target_days: {})",
+      "任务 {} ({}) 已全部完成 (total_completed: {}, completion_target: {})",
       task.id,
       task.fc_name,
-      completed_days,
-      task.target_days
+      total_completed,
+      monthly_completion_target
     );
     return Err(AppError::ExecutionError("该月度任务已全部完成".to_string()));
+  }
+
+  if monthly_completion_target > 0
+    && total_completed >= monthly_completion_target
+    && has_incomplete_daily_task
+  {
+    log::info!(
+      "任务 {} ({}) 已达到月度完成门槛，但每日任务 {} 尚未完成，继续补做",
+      task.id,
+      task.fc_name,
+      date
+    );
   }
 
   log::info!(
@@ -168,28 +198,39 @@ where
     completed_days,
     task.target_days,
     total_completed,
-    task.total_target
+    monthly_completion_target
   );
 
-  let mut today_progress = ensure_daily_task(db, &task, date)?;
+  let had_existing_daily_task = existing_daily_task.is_some();
+  let mut today_progress = match existing_daily_task {
+    Some(progress) => progress,
+    None => ensure_daily_task(db, &task, date)?,
+  };
+  if !had_existing_daily_task && monthly_completion_target > 0 {
+    let monthly_remaining_count = monthly_completion_target.saturating_sub(total_completed);
+    let daily_remaining_count = today_progress
+      .target_count
+      .saturating_sub(today_progress.completed_count);
+    if monthly_remaining_count < daily_remaining_count {
+      today_progress.target_count = today_progress.completed_count + monthly_remaining_count;
+    }
+  }
 
   super::db::save_daily_task(db, &today_progress)?;
 
-  if today_progress.is_locked {
-    today_progress.run_status = "completed".to_string();
-    super::db::save_daily_task(db, &today_progress)?;
-    return Err(AppError::ExecutionError(
-      "今日任务已经执行完成，请明天再执行".to_string(),
-    ));
-  }
-
-  if today_progress.completed_count >= today_progress.target_count {
+  if is_daily_task_completed(&today_progress) {
     today_progress.is_locked = true;
     today_progress.run_status = "completed".to_string();
     super::db::save_daily_task(db, &today_progress)?;
     return Err(AppError::ExecutionError(
       "今日任务已经完成，请明天再执行".to_string(),
     ));
+  }
+
+  if today_progress.is_locked {
+    today_progress.is_locked = false;
+    today_progress.run_status = "not_started".to_string();
+    super::db::save_daily_task(db, &today_progress)?;
   }
 
   today_progress.run_status = "running".to_string();
@@ -217,10 +258,7 @@ where
 
   let requested_count = today_progress.target_count - today_progress.completed_count;
   let selected_shops = if today_progress.shopcodes.is_empty() {
-    let used_shop_codes = super::db::get_task_results(db, task_id)?
-      .into_iter()
-      .map(|item| item.shop_code)
-      .collect::<HashSet<_>>();
+    let used_shop_codes = super::db::get_task_result_shop_codes(db, task_id)?;
     let random_shops = select_unused_monthly_shops(
       valid_shops,
       &used_shop_codes,
@@ -233,8 +271,7 @@ where
     );
     random_shops
   } else {
-    let requested_today_shop_codes =
-      super::db::get_task_result_shop_codes_for_date(db, task_id, date)?;
+    let task_used_shop_codes = super::db::get_task_result_shop_codes(db, task_id)?;
     let planned_shops = select_planned_shops(valid_shops, &today_progress.shopcodes)?;
     if planned_shops.is_empty() && !today_progress.shopcodes.is_empty() {
       return Err(AppError::ResourceUnavailableError(
@@ -243,14 +280,14 @@ where
     }
     let planned_shops = planned_shops
       .into_iter()
-      .filter(|shop| !requested_today_shop_codes.contains(shop.shop_code.as_str()))
+      .filter(|shop| !task_used_shop_codes.contains(shop.shop_code.as_str()))
       .take(requested_count)
       .collect::<Vec<_>>();
-    if !requested_today_shop_codes.is_empty() {
+    if !task_used_shop_codes.is_empty() {
       log::info!(
-        "今日任务 {} 已有 {} 家门店发送过阅读请求，本次跳过这些门店",
+        "任务 {} 已有 {} 家门店发送过阅读请求，本次跳过已执行门店",
         task_id,
-        requested_today_shop_codes.len()
+        task_used_shop_codes.len()
       );
     }
     if planned_shops.len() < today_progress.shopcodes.len() {
@@ -268,8 +305,13 @@ where
   let requested_count = selected_shops.len();
   if requested_count == 0 {
     log::info!("今日任务 {} 没有剩余可执行门店，跳过请求发送", task_id);
-    today_progress.is_locked = true;
-    today_progress.run_status = "completed".to_string();
+    if is_daily_task_completed(&today_progress) {
+      today_progress.is_locked = true;
+      today_progress.run_status = "completed".to_string();
+    } else {
+      today_progress.is_locked = false;
+      today_progress.run_status = "paused".to_string();
+    }
     super::db::save_daily_task(db, &today_progress)?;
     return Ok(TaskRunSummary {
       requested_count: 0,
@@ -311,13 +353,16 @@ where
     }
 
     // Keep requests moving while avoiding back-to-back submissions.
-    let sleep_secs = calculate_sleep_secs(index, selected_shops.len());
-    if sleep_secs > 0 {
-      log::info!("任务 {}: 等待 {} 秒后执行下一个请求", task.id, sleep_secs);
-      if let Err(error) = sleep_with_pause_check(sleep_secs, &should_pause).await {
-        today_progress.run_status = "paused".to_string();
-        super::db::save_daily_task(db, &today_progress)?;
-        return Err(error);
+    // Execute the first request immediately, and space out subsequent ones.
+    if index > 0 {
+      let sleep_secs = calculate_sleep_secs(selected_shops.len() - index);
+      if sleep_secs > 0 {
+        log::info!("任务 {}: 等待 {} 秒后执行下一个请求", task.id, sleep_secs);
+        if let Err(error) = sleep_with_pause_check(sleep_secs, &should_pause).await {
+          today_progress.run_status = "paused".to_string();
+          super::db::save_daily_task(db, &today_progress)?;
+          return Err(error);
+        }
       }
     }
 
@@ -336,7 +381,7 @@ where
       shop_code: &shop.shop_code,
     };
 
-    let item = execute_single_request(
+    let mut item = execute_single_request(
       &client,
       &body,
       reading_link.referer.clone(),
@@ -347,11 +392,24 @@ where
     .await;
 
     // Persist result to DB for history viewing
-    if let Err(error) = super::db::save_task_result(db, task_id, &item) {
+    match super::db::save_task_result(db, task_id, &item) {
+      Ok(result_id) => item.result_id = Some(result_id),
+      Err(error) => {
+        log::error!(
+          "保存执行记录失败: task_id={}, shop_code={}, error={}",
+          task_id,
+          item.shop_code,
+          error
+        );
+      }
+    }
+
+    today_progress.completed_count += 1;
+    if let Err(error) = super::db::save_daily_task(db, &today_progress) {
       log::error!(
-        "保存执行记录失败: task_id={}, shop_code={}, error={}",
+        "更新每日任务进度失败: task_id={}, date={}, error={}",
         task_id,
-        item.shop_code,
+        date,
         error
       );
     }
@@ -363,15 +421,6 @@ where
         requested_count,
         shop.shop_code
       );
-      today_progress.completed_count += 1;
-      if let Err(error) = super::db::save_daily_task(db, &today_progress) {
-        log::error!(
-          "更新每日任务进度失败: task_id={}, date={}, error={}",
-          task_id,
-          date,
-          error
-        );
-      }
     } else {
       log::error!(
         "请求 {}/{}: 失败 ({}) - {:?}",
@@ -407,9 +456,36 @@ where
     failure_count
   );
 
-  today_progress.is_locked = true;
-  today_progress.run_status = "completed".to_string();
+  if is_daily_task_completed(&today_progress) {
+    today_progress.is_locked = true;
+    today_progress.run_status = "completed".to_string();
+  } else {
+    today_progress.is_locked = false;
+    today_progress.run_status = "paused".to_string();
+  }
   super::db::save_daily_task(db, &today_progress)?;
+
+  // 如果总完成数已经达到或超过月度完成门槛，将该任务下所有的每日任务状态标记为已完成并锁定
+  let all_progress = super::db::get_all_daily_tasks_for_task(db, task_id)?;
+  let total_completed: usize = all_progress.iter().map(|p| p.completed_count).sum();
+  if monthly_completion_target > 0 && total_completed >= monthly_completion_target {
+    for mut progress in all_progress {
+      if is_daily_task_completed(&progress)
+        && (!progress.is_locked || progress.run_status != "completed")
+      {
+        progress.is_locked = true;
+        progress.run_status = "completed".to_string();
+        if let Err(e) = super::db::save_daily_task(db, &progress) {
+          log::error!(
+            "同步更新每日任务完成状态失败: task_id={}, date={}, error={}",
+            task_id,
+            progress.date,
+            e
+          );
+        }
+      }
+    }
+  }
 
   Ok(TaskRunSummary {
     requested_count,
@@ -472,6 +548,7 @@ async fn execute_single_request(
           classify_submit_read_log_response(&text),
         ),
         Err(error) => TaskItemResult {
+          result_id: None,
           index: index + 1,
           executed_date: Some(current_datetime_string()),
           submit_err: None,
@@ -488,6 +565,7 @@ async fn execute_single_request(
       }
     }
     Err(error) => TaskItemResult {
+      result_id: None,
       index: index + 1,
       executed_date: Some(current_datetime_string()),
       submit_err: None,
@@ -502,6 +580,74 @@ async fn execute_single_request(
       outcome: TaskItemOutcome::RequestError,
     },
   }
+}
+
+pub async fn retry_task_result(
+  db: &DbContext,
+  task_id: &str,
+  result_id: i64,
+) -> Result<TaskItemResult, AppError> {
+  let failed_result = super::db::get_task_result(db, task_id, result_id)?
+    .ok_or_else(|| AppError::ResourceUnavailableError(format!("未找到失败记录: {result_id}")))?;
+  validate_retry_task_result(&failed_result)?;
+
+  let task = super::db::get_all_monthly_tasks(db)?
+    .into_iter()
+    .find(|task| task.id == task_id)
+    .ok_or_else(|| AppError::ResourceUnavailableError(format!("未找到月度任务: {task_id}")))?;
+  let reading_link = resolve_task_reading_link(&task)?;
+  let client = build_http_client()?;
+  let shop = ShopRecord {
+    province: failed_result.province.clone(),
+    city: failed_result.city.clone(),
+    shop_code: failed_result.shop_code.clone(),
+    shop_name: String::new(),
+    fc: Some(task.fc_name.clone()),
+    shop_type: match task.task_type.as_str() {
+      "Klorane" => SHOP_TYPE_KLORANE,
+      _ => SHOP_TYPE_AVENE,
+    },
+  };
+  let body = SubmitReadLogBody {
+    s_course_id: &reading_link.s_course_id,
+    s_manager_id: &reading_link.s_manager_id,
+    open_id: &failed_result.open_id,
+    province: &failed_result.province,
+    city: &failed_result.city,
+    shop_code: &failed_result.shop_code,
+  };
+  let mut retried = execute_single_request(
+    &client,
+    &body,
+    reading_link.referer,
+    failed_result.index.saturating_sub(1),
+    &failed_result.open_id,
+    &shop,
+  )
+  .await;
+
+  retried.result_id = Some(super::db::save_retried_task_result(
+    db, task_id, result_id, &retried,
+  )?);
+  Ok(retried)
+}
+
+fn validate_retry_task_result(result: &TaskItemResult) -> Result<(), AppError> {
+  if result.outcome == TaskItemOutcome::Success || result.submit_err == Some(0) {
+    return Err(AppError::ValidationError("成功记录无需重做".to_string()));
+  }
+
+  if result.open_id.trim().is_empty()
+    || result.shop_code.trim().is_empty()
+    || result.province.trim().is_empty()
+    || result.city.trim().is_empty()
+  {
+    return Err(AppError::ValidationError(
+      "失败记录缺少重做所需的请求参数".to_string(),
+    ));
+  }
+
+  Ok(())
 }
 
 pub async fn run_task_with_progress<F>(
@@ -552,6 +698,7 @@ where
             classify_submit_read_log_response(&text),
           ),
           Err(error) => TaskItemResult {
+            result_id: None,
             index: index + 1,
             executed_date: Some(current_datetime_string()),
             submit_err: None,
@@ -568,6 +715,7 @@ where
         }
       }
       Err(error) => TaskItemResult {
+        result_id: None,
         index: index + 1,
         executed_date: Some(current_datetime_string()),
         submit_err: None,
@@ -663,16 +811,7 @@ fn archive_quick_run_results_for_date(
 
   let task = &matched_tasks[0];
   super::db::save_task_results(db, &task.id, items)?;
-  let success_count = items
-    .iter()
-    .filter(|item| item.outcome == TaskItemOutcome::Success)
-    .count();
-
-  if success_count > 0 {
-    let mut progress = ensure_daily_task(db, task, run_date)?;
-    progress.completed_count += success_count;
-    super::db::save_daily_task(db, &progress)?;
-  }
+  super::db::reconcile_daily_task_progress_for_task(db, &task.id)?;
 
   Ok(QuickRunArchiveResult {
     status: QuickRunArchiveStatus::Archived,
@@ -698,6 +837,7 @@ fn build_task_item_result(
   classified: ClassifiedSubmitReadLogResponse,
 ) -> TaskItemResult {
   TaskItemResult {
+    result_id: None,
     index: index + 1,
     executed_date: Some(current_datetime_string()),
     submit_err: classified.submit_err,
@@ -1260,20 +1400,64 @@ fn calculate_monthly_target_bounds(eligible_shop_count: usize, task_type: &str) 
   (min_target.min(eligible_shop_count), max_target)
 }
 
-fn calculate_sleep_secs(index: usize, total_to_run: usize) -> u64 {
-  calculate_sleep_secs_at(Local::now(), index, total_to_run)
+fn is_daily_task_completed(task: &DailyTask) -> bool {
+  task.completed_count >= task.target_count
 }
 
-fn calculate_sleep_secs_at(
-  _now: chrono::DateTime<Local>,
-  index: usize,
-  _total_to_run: usize,
-) -> u64 {
-  if index == 0 {
+fn calculate_monthly_completion_target_for_task(
+  shops: &[ShopRecord],
+  fc_name: &str,
+  task_type: &str,
+) -> usize {
+  let eligible_shop_count = shops
+    .iter()
+    .filter(|shop| shop.fc.as_deref() == Some(fc_name))
+    .filter(|shop| task_type_matches_shop(task_type, shop.shop_type))
+    .count();
+
+  calculate_monthly_completion_target(eligible_shop_count, task_type)
+}
+
+fn calculate_monthly_completion_target(eligible_shop_count: usize, task_type: &str) -> usize {
+  if eligible_shop_count == 0 {
     return 0;
   }
 
-  rand::rng().random_range(60..=120)
+  let completion_percent = match task_type {
+    "Avene" => AVENE_MONTHLY_COMPLETION_PERCENT,
+    "Klorane" => KLORANE_MONTHLY_COMPLETION_PERCENT,
+    _ => 100,
+  };
+
+  (eligible_shop_count * completion_percent)
+    .div_ceil(100)
+    .min(eligible_shop_count)
+}
+
+fn calculate_sleep_secs(total_to_run: usize) -> u64 {
+  calculate_sleep_secs_at(Local::now(), total_to_run)
+}
+
+fn calculate_sleep_secs_at(now: chrono::DateTime<Local>, total_to_run: usize) -> u64 {
+  if total_to_run == 0 {
+    return 0;
+  }
+
+  let Some(deadline) = now.with_hour(21).and_then(|time| {
+    time
+      .with_minute(0)
+      .and_then(|time| time.with_second(0))
+      .and_then(|time| time.with_nanosecond(0))
+  }) else {
+    return 0;
+  };
+
+  if now >= deadline {
+    return 0;
+  }
+
+  let remaining_secs = (deadline - now).num_seconds().max(0) as u64;
+  remaining_secs / (total_to_run as u64)
 }
 
 fn filter_task_shops(shops: Vec<ShopRecord>, fc_name: &str, task_type: &str) -> Vec<ShopRecord> {
@@ -1373,34 +1557,6 @@ fn extract_start_date(created_at: &str) -> Result<String, AppError> {
     .ok_or_else(|| AppError::ValidationError(format!("无效 created_at: {created_at}")))
 }
 
-fn add_days_to_date(date: &str, delta_days: i64) -> String {
-  if let Some((year, month, day)) = parse_date_parts(date) {
-    let days = days_from_civil(year, month, day) + delta_days;
-    let (new_year, new_month, new_day) = civil_from_days(days);
-    return format!("{new_year:04}-{new_month:02}-{new_day:02}");
-  }
-
-  date.to_string()
-}
-
-fn parse_date_parts(date: &str) -> Option<(i32, u32, u32)> {
-  let year = date.get(0..4)?.parse().ok()?;
-  let month = date.get(5..7)?.parse().ok()?;
-  let day = date.get(8..10)?.parse().ok()?;
-  Some((year, month, day))
-}
-
-fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
-  let year = year - if month <= 2 { 1 } else { 0 };
-  let era = if year >= 0 { year } else { year - 399 } / 400;
-  let yoe = year - era * 400;
-  let month = month as i32;
-  let day = day as i32;
-  let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
-  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-  (era * 146_097 + doe - 719_468) as i64
-}
-
 fn now_timestamp_string() -> String {
   let timestamp = SystemTime::now()
     .duration_since(UNIX_EPOCH)
@@ -1433,30 +1589,249 @@ fn task_month_prefix_from_date(date: &str) -> Result<String, AppError> {
   Ok(format!("{year}{month}"))
 }
 
-fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
-  let z = days_since_unix_epoch + 719_468;
-  let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-  let doe = z - era * 146_097;
-  let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-  let y = yoe + era * 400;
-  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-  let mp = (5 * doy + 2) / 153;
-  let d = doy - (153 * mp + 2) / 5 + 1;
-  let m = mp + if mp < 10 { 3 } else { -9 };
-  let year = y + if m <= 2 { 1 } else { 0 };
-  (year as i32, m as u32, d as u32)
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
   use chrono::Timelike;
+  use tempfile::tempdir;
+
+  use crate::core::{
+    AppPaths, add_monthly_task, add_open_id, get_daily_task, import_shops, init_db_context,
+    save_daily_task,
+  };
 
   fn open_id_record(fc_name: &str, open_id: &str) -> OpenIdRecord {
     OpenIdRecord {
       fc_name: fc_name.to_string(),
       open_id: open_id.to_string(),
     }
+  }
+
+  #[tokio::test]
+  async fn incomplete_daily_task_can_resume_after_monthly_threshold_reached() {
+    let temp_dir = tempdir().expect("create temp dir");
+    let paths = AppPaths::new_with_db_path(temp_dir.path().join("test.sqlite"));
+    let db = init_db_context(&paths).expect("init db");
+    let shops = (0..11)
+      .map(|index| ShopRecord {
+        province: "province".to_string(),
+        city: "city".to_string(),
+        shop_code: format!("shop-{index:02}"),
+        shop_name: String::new(),
+        fc: Some("fc-a".to_string()),
+        shop_type: SHOP_TYPE_KLORANE,
+      })
+      .collect::<Vec<_>>();
+    import_shops(&db, &shops).expect("import shops");
+    add_open_id(&db, &open_id_record("fc-a", "open-id-1")).expect("add open id");
+
+    let task = MonthlyTask {
+      id: "task-1".to_string(),
+      fc_name: "fc-a".to_string(),
+      s_manager_id: "manager-1".to_string(),
+      s_course_id: "course-1".to_string(),
+      reading_url: String::new(),
+      task_type: "Klorane".to_string(),
+      total_target: 11,
+      target_days: 2,
+      created_at: "2026-08-01 00:00:00".to_string(),
+      shopcodes: shops.iter().map(|shop| shop.shop_code.clone()).collect(),
+      excluded_open_ids: Vec::new(),
+    };
+    add_monthly_task(&db, &task).expect("add task");
+    save_daily_task(
+      &db,
+      &DailyTask {
+        task_id: task.id.clone(),
+        date: "2026-08-01".to_string(),
+        target_count: 10,
+        completed_count: 10,
+        is_locked: true,
+        run_status: "completed".to_string(),
+        shopcodes: shops[..10]
+          .iter()
+          .map(|shop| shop.shop_code.clone())
+          .collect(),
+      },
+    )
+    .expect("save completed day");
+    save_daily_task(
+      &db,
+      &DailyTask {
+        task_id: task.id.clone(),
+        date: "2026-08-02".to_string(),
+        target_count: 1,
+        completed_count: 0,
+        is_locked: false,
+        run_status: "paused".to_string(),
+        shopcodes: vec![shops[10].shop_code.clone()],
+      },
+    )
+    .expect("save interrupted day");
+
+    let error =
+      run_daily_task_with_progress_controlled(&db, &task.id, "2026-08-02", |_| {}, || true)
+        .await
+        .expect_err("the pause signal should stop the resumed task before requests are sent");
+
+    assert!(
+      matches!(error, AppError::Paused(_)),
+      "unexpected error: {error:?}"
+    );
+    let pending = get_daily_task(&db, &task.id, "2026-08-02")
+      .expect("load interrupted day")
+      .expect("interrupted day should still exist");
+    assert_eq!(pending.target_count, 1);
+    assert_eq!(pending.completed_count, 0);
+    assert_eq!(pending.run_status, "paused");
+  }
+
+  #[test]
+  fn retry_validation_accepts_only_failed_records_with_complete_request_data() {
+    let failed = TaskItemResult {
+      result_id: Some(1),
+      index: 1,
+      executed_date: Some("2026-08-16 20:07:31".to_string()),
+      submit_err: None,
+      rtn_msg: None,
+      read_id: None,
+      open_id: "open-id-1".to_string(),
+      shop_code: "shop-01".to_string(),
+      province: "province".to_string(),
+      city: "city".to_string(),
+      http_status: None,
+      response_text: Some("请求失败".to_string()),
+      outcome: TaskItemOutcome::RequestError,
+    };
+
+    assert!(validate_retry_task_result(&failed).is_ok());
+
+    let successful = TaskItemResult {
+      submit_err: Some(0),
+      outcome: TaskItemOutcome::Success,
+      ..failed.clone()
+    };
+    assert!(matches!(
+      validate_retry_task_result(&successful),
+      Err(AppError::ValidationError(_))
+    ));
+
+    let missing_open_id = TaskItemResult {
+      open_id: String::new(),
+      ..failed
+    };
+    assert!(matches!(
+      validate_retry_task_result(&missing_open_id),
+      Err(AppError::ValidationError(_))
+    ));
+  }
+
+  #[test]
+  fn quick_run_archive_credits_results_to_planned_days_by_shopcode() {
+    let temp_dir = tempdir().expect("create temp dir");
+    let paths = AppPaths::new_with_db_path(temp_dir.path().join("test.sqlite"));
+    let db = init_db_context(&paths).expect("init db");
+    let task = MonthlyTask {
+      id: "2608:70:course-1:Klorane".to_string(),
+      fc_name: "fc-a".to_string(),
+      s_manager_id: "manager-1".to_string(),
+      s_course_id: "course-1".to_string(),
+      reading_url: String::new(),
+      task_type: "Klorane".to_string(),
+      total_target: 4,
+      target_days: 2,
+      created_at: "2026-08-01 00:00:00".to_string(),
+      shopcodes: vec![
+        "A".to_string(),
+        "B".to_string(),
+        "C".to_string(),
+        "D".to_string(),
+      ],
+      excluded_open_ids: Vec::new(),
+    };
+    add_monthly_task(&db, &task).expect("add task");
+    for (date, shopcodes) in [
+      ("2026-08-10", vec!["A".to_string(), "B".to_string()]),
+      ("2026-08-11", vec!["C".to_string(), "D".to_string()]),
+    ] {
+      save_daily_task(
+        &db,
+        &DailyTask {
+          task_id: task.id.clone(),
+          date: date.to_string(),
+          target_count: 2,
+          completed_count: 0,
+          is_locked: false,
+          run_status: "not_started".to_string(),
+          shopcodes,
+        },
+      )
+      .expect("save daily plan");
+    }
+    let request = TaskRunRequest {
+      s_course_id: task.s_course_id.clone(),
+      s_manager_id: task.s_manager_id.clone(),
+      reading_url: String::new(),
+      fc: task.fc_name.clone(),
+      count: 2,
+      shopcodes: vec!["B".to_string(), "C".to_string()],
+    };
+    let items = [
+      TaskItemResult {
+        result_id: None,
+        index: 1,
+        executed_date: None,
+        submit_err: Some(0),
+        rtn_msg: Some("提交成功".to_string()),
+        read_id: Some("read-b".to_string()),
+        open_id: "open-b".to_string(),
+        shop_code: "B".to_string(),
+        province: "P".to_string(),
+        city: "C".to_string(),
+        http_status: Some(200),
+        response_text: None,
+        outcome: TaskItemOutcome::Success,
+      },
+      TaskItemResult {
+        result_id: None,
+        index: 2,
+        executed_date: None,
+        submit_err: Some(-1),
+        rtn_msg: Some("提交失败".to_string()),
+        read_id: None,
+        open_id: "open-c".to_string(),
+        shop_code: "C".to_string(),
+        province: "P".to_string(),
+        city: "C".to_string(),
+        http_status: Some(200),
+        response_text: None,
+        outcome: TaskItemOutcome::RequestError,
+      },
+    ];
+
+    archive_quick_run_results_for_date(&db, &request, &items, "2026-08-27")
+      .expect("archive quick run");
+
+    assert_eq!(
+      get_daily_task(&db, &task.id, "2026-08-10")
+        .expect("load first plan")
+        .expect("first plan")
+        .completed_count,
+      1
+    );
+    assert_eq!(
+      get_daily_task(&db, &task.id, "2026-08-11")
+        .expect("load second plan")
+        .expect("second plan")
+        .completed_count,
+      1
+    );
+    assert!(
+      get_daily_task(&db, &task.id, "2026-08-27")
+        .expect("load archive date")
+        .is_none(),
+      "quick-run archive must not create an empty daily plan"
+    );
   }
 
   #[test]
@@ -1546,14 +1921,53 @@ mod tests {
   }
 
   #[test]
+  fn test_calculate_monthly_completion_target() {
+    assert_eq!(calculate_monthly_completion_target(100, "Avene"), 65);
+    assert_eq!(calculate_monthly_completion_target(101, "Avene"), 66);
+    assert_eq!(calculate_monthly_completion_target(100, "Klorane"), 85);
+    assert_eq!(calculate_monthly_completion_target(101, "Klorane"), 86);
+    assert_eq!(calculate_monthly_completion_target(0, "Avene"), 0);
+  }
+
+  #[test]
+  fn test_is_daily_task_completed_uses_target_count_only() {
+    let task = DailyTask {
+      task_id: "task-1".to_string(),
+      date: "2026-07-06".to_string(),
+      target_count: 10,
+      completed_count: 9,
+      is_locked: true,
+      run_status: "completed".to_string(),
+      shopcodes: Vec::new(),
+    };
+
+    assert!(!is_daily_task_completed(&task));
+
+    let task = DailyTask {
+      completed_count: 10,
+      is_locked: false,
+      run_status: "not_started".to_string(),
+      ..task
+    };
+
+    assert!(is_daily_task_completed(&task));
+  }
+
+  #[test]
   fn test_calculate_sleep_secs_at() {
-    let now = Local::now().with_nanosecond(0).unwrap();
+    let now = Local::now()
+      .with_hour(20)
+      .and_then(|time| time.with_minute(0))
+      .and_then(|time| time.with_second(0))
+      .and_then(|time| time.with_nanosecond(0))
+      .unwrap();
 
-    let sleep = calculate_sleep_secs_at(now, 0, 10);
+    let sleep = calculate_sleep_secs_at(now, 10);
+    assert_eq!(sleep, 360);
+
+    let after_deadline = now.with_hour(21).unwrap();
+    let sleep = calculate_sleep_secs_at(after_deadline, 10);
     assert_eq!(sleep, 0);
-
-    let sleep = calculate_sleep_secs_at(now, 1, 10);
-    assert!((60..=120).contains(&sleep));
   }
 
   #[test]

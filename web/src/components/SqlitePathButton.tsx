@@ -4,12 +4,7 @@ import { DatabaseIcon } from "lucide-react";
 import { setSqlitePath } from "@/api/commands";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn, getErrorMessage } from "@/lib/utils";
 import type { RuntimeStatus } from "@/types";
@@ -32,9 +27,7 @@ export function SqlitePathButton({
 
   const handlePickSqlitePath = async () => {
     setFeedback(
-      status?.sqlitePath
-        ? "请输入后端可访问的 SQLite 文件路径"
-        : "请先填写 SQLite 文件路径",
+      status?.sqlitePath ? "请输入后端可访问的 SQLite 文件路径" : "请先填写 SQLite 文件路径",
     );
   };
 
@@ -108,11 +101,7 @@ export function SqlitePathButton({
               </Button>
             </div>
             <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setOpen(false)}
-                disabled={saving}
-              >
+              <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
                 取消
               </Button>
               <Button onClick={() => void handleSaveSqlitePath()} disabled={saving}>

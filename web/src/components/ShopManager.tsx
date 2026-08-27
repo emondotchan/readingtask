@@ -11,12 +11,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -105,19 +100,14 @@ function parseShopCodeLines(text: string): string[] {
 }
 
 function getShopTypeLabel(shopType: number) {
-  return (
-    SHOP_TYPE_OPTIONS.find((option) => option.value === shopType)?.label ??
-    "Avene"
-  );
+  return SHOP_TYPE_OPTIONS.find((option) => option.value === shopType)?.label ?? "Avene";
 }
 
 function ShopTypeBadge({ shopType }: { shopType: number }) {
   if (shopType === 2) {
     return (
       <div className="flex items-center gap-2">
-        <Badge className="border-primary/20 bg-primary/12 text-primary">
-          Avene
-        </Badge>
+        <Badge className="border-primary/20 bg-primary/12 text-primary">Avene</Badge>
         <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/12 dark:text-emerald-300">
           Klorane
         </Badge>
@@ -133,11 +123,7 @@ function ShopTypeBadge({ shopType }: { shopType: number }) {
     );
   }
 
-  return (
-    <Badge className="border-primary/20 bg-primary/12 text-primary">
-      Avene
-    </Badge>
-  );
+  return <Badge className="border-primary/20 bg-primary/12 text-primary">Avene</Badge>;
 }
 
 export function ShopManager({
@@ -180,8 +166,7 @@ export function ShopManager({
 
   const filteredShops = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
-    const selectedShopType =
-      shopTypeFilter === "all" ? null : Number(shopTypeFilter);
+    const selectedShopType = shopTypeFilter === "all" ? null : Number(shopTypeFilter);
 
     return shops.filter(
       (shop) =>
@@ -284,10 +269,7 @@ export function ShopManager({
     }
   };
 
-  const currentShops = filteredShops.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
-  );
+  const currentShops = filteredShops.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -309,9 +291,7 @@ export function ShopManager({
           <div className="space-y-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-foreground">
-                  门店列表
-                </h3>
+                <h3 className="text-sm font-semibold text-foreground">门店列表</h3>
                 <Badge variant="secondary" className="font-mono">
                   {filteredShops.length}
                 </Badge>
@@ -329,11 +309,7 @@ export function ShopManager({
                     />
                   </label>
                 </Button>
-                <Button
-                  asChild
-                  variant="outline"
-                  disabled={isUpdatingKlorane}
-                >
+                <Button asChild variant="outline" disabled={isUpdatingKlorane}>
                   <label>
                     <UploadIcon data-icon="inline-start" />
                     {isUpdatingKlorane ? "更新中" : "上传 Klorane"}
@@ -379,10 +355,7 @@ export function ShopManager({
                   <SelectContent>
                     <SelectItem value="all">全部类型</SelectItem>
                     {SHOP_TYPE_OPTIONS.map((option) => (
-                      <SelectItem
-                        key={option.value}
-                        value={String(option.value)}
-                      >
+                      <SelectItem key={option.value} value={String(option.value)}>
                         {option.label}
                       </SelectItem>
                     ))}
@@ -396,47 +369,27 @@ export function ShopManager({
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50 hover:bg-muted/50">
-                      <TableHead className="w-[140px] sticky top-0 bg-muted/90">
-                        省份
-                      </TableHead>
-                      <TableHead className="w-[140px] sticky top-0 bg-muted/90">
-                        城市
-                      </TableHead>
-                      <TableHead className="w-[200px] sticky top-0 bg-muted/90">
-                        门店代码
-                      </TableHead>
-                      <TableHead className="sticky top-0 bg-muted/90">
-                        门店名称
-                      </TableHead>
-                      <TableHead className="sticky top-0 bg-muted/90">
-                        FC
-                      </TableHead>
-                      <TableHead className="w-[180px] sticky top-0 bg-muted/90">
-                        门店类型
-                      </TableHead>
+                      <TableHead className="w-[140px] sticky top-0 bg-muted/90">省份</TableHead>
+                      <TableHead className="w-[140px] sticky top-0 bg-muted/90">城市</TableHead>
+                      <TableHead className="w-[200px] sticky top-0 bg-muted/90">门店代码</TableHead>
+                      <TableHead className="sticky top-0 bg-muted/90">门店名称</TableHead>
+                      <TableHead className="sticky top-0 bg-muted/90">FC</TableHead>
+                      <TableHead className="w-[180px] sticky top-0 bg-muted/90">门店类型</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {currentShops.length === 0 ? (
                       <TableRow>
-                        <TableCell
-                          colSpan={6}
-                          className="h-32 text-center text-muted-foreground"
-                        >
+                        <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
                           暂无记录
                         </TableCell>
                       </TableRow>
                     ) : (
                       currentShops.map((shop) => (
-                        <TableRow
-                          key={shop.shop_code}
-                          className="group hover:bg-muted/40"
-                        >
+                        <TableRow key={shop.shop_code} className="group hover:bg-muted/40">
                           <TableCell>{shop.province}</TableCell>
                           <TableCell>{shop.city}</TableCell>
-                          <TableCell className="font-mono">
-                            {shop.shop_code}
-                          </TableCell>
+                          <TableCell className="font-mono">{shop.shop_code}</TableCell>
                           <TableCell>{shop.shop_name}</TableCell>
                           <TableCell>{shop.fc}</TableCell>
                           <TableCell>
@@ -451,16 +404,12 @@ export function ShopManager({
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
-                共 {filteredShops.length} 条
-              </span>
+              <span className="text-sm text-muted-foreground">共 {filteredShops.length} 条</span>
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    setCurrentPage((page) => Math.max(1, page - 1))
-                  }
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                   disabled={currentPage === 1}
                 >
                   <ChevronLeftIcon />
@@ -471,9 +420,7 @@ export function ShopManager({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    setCurrentPage((page) => Math.min(totalPages, page + 1))
-                  }
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
                   disabled={currentPage === totalPages}
                 >
                   <ChevronRightIcon />

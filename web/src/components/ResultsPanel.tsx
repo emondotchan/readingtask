@@ -12,19 +12,8 @@ import {
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Empty,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -49,10 +38,7 @@ interface Props {
   error: CommandError | null;
 }
 
-const runStateMeta: Record<
-  RunState,
-  { label: string; badgeClassName: string }
-> = {
+const runStateMeta: Record<RunState, { label: string; badgeClassName: string }> = {
   idle: {
     label: "等待执行",
     badgeClassName: "border-border bg-muted text-foreground",
@@ -137,9 +123,7 @@ export default function ResultsPanel({
     requested: summary?.requested_count ?? requestedCount,
     processed: summary?.processed_count ?? processedCount,
     success: summary?.success_count ?? items.filter((item) => item.outcome === "Success").length,
-    failure:
-      summary?.failure_count ??
-      items.filter((item) => item.outcome !== "Success").length,
+    failure: summary?.failure_count ?? items.filter((item) => item.outcome !== "Success").length,
     startedAt: formatTimestamp(summary?.started_at),
     finishedAt: formatTimestamp(summary?.finished_at),
   };
@@ -221,10 +205,7 @@ export default function ResultsPanel({
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {summaryTiles.map(({ icon: Icon, label, value }) => (
-            <div
-              key={label}
-              className="rounded-xl border p-4 shadow-sm"
-            >
+            <div key={label} className="rounded-xl border p-4 shadow-sm">
               <div className="mb-3 inline-flex size-10 items-center justify-center rounded-md bg-muted text-foreground">
                 <Icon className="size-4" />
               </div>
@@ -232,9 +213,7 @@ export default function ResultsPanel({
                 <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                   {label}
                 </p>
-                <p className="text-2xl font-semibold tracking-tight text-foreground">
-                  {value}
-                </p>
+                <p className="text-2xl font-semibold tracking-tight text-foreground">{value}</p>
               </div>
             </div>
           ))}
@@ -267,7 +246,10 @@ export default function ResultsPanel({
           {items.length === 0 ? (
             <Empty className="min-h-[300px] border-0 bg-transparent text-muted-foreground">
               <EmptyHeader>
-                <EmptyMedia variant="icon" className="bg-muted text-sky-700 shadow-sm dark:text-sky-400">
+                <EmptyMedia
+                  variant="icon"
+                  className="bg-muted text-sky-700 shadow-sm dark:text-sky-400"
+                >
                   <PlayCircleIcon />
                 </EmptyMedia>
                 <EmptyTitle>等待首轮任务执行</EmptyTitle>
@@ -296,12 +278,10 @@ export default function ResultsPanel({
                         className={cn(
                           isSuccess
                             ? "bg-emerald-50/35 hover:bg-emerald-50/55 dark:bg-emerald-950/10 dark:hover:bg-emerald-950/20"
-                            : "bg-rose-50/35 hover:bg-rose-50/55 dark:bg-rose-950/10 dark:hover:bg-rose-950/20"
+                            : "bg-rose-50/35 hover:bg-rose-50/55 dark:bg-rose-950/10 dark:hover:bg-rose-950/20",
                         )}
                       >
-                        <TableCell className="font-medium text-foreground">
-                          {item.index}
-                        </TableCell>
+                        <TableCell className="font-medium text-foreground">{item.index}</TableCell>
                         <TableCell className="max-w-40 truncate font-mono text-xs text-muted-foreground">
                           {item.open_id}
                         </TableCell>
@@ -325,7 +305,7 @@ export default function ResultsPanel({
                                 "w-fit",
                                 isSuccess
                                   ? "text-emerald-700 dark:text-emerald-300"
-                                  : "text-rose-700 dark:text-rose-300"
+                                  : "text-rose-700 dark:text-rose-300",
                               )}
                             >
                               {isSuccess ? <CheckCircle2Icon /> : <AlertCircleIcon />}
@@ -334,7 +314,9 @@ export default function ResultsPanel({
                             <p className="text-sm leading-6 text-muted-foreground">
                               {isSuccess
                                 ? item.response_text || "请求已成功完成。"
-                                : item.rtn_msg || item.response_text || "执行失败，未返回更多信息。"}
+                                : item.rtn_msg ||
+                                  item.response_text ||
+                                  "执行失败，未返回更多信息。"}
                             </p>
                           </div>
                         </TableCell>

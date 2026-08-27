@@ -87,13 +87,12 @@ export function useMonthlyRunner() {
 
   const runtimeReady = Boolean(
     runtimeStatus?.openIdsReady &&
-      runtimeStatus?.shopReady &&
-      runtimeStatus?.provinceReady &&
-      runtimeStatus?.fcReady,
+    runtimeStatus?.shopReady &&
+    runtimeStatus?.provinceReady &&
+    runtimeStatus?.fcReady,
   );
 
-  const canSubmit =
-    runtimeError === null && runtimeStatus !== null && runtimeReady;
+  const canSubmit = runtimeError === null && runtimeStatus !== null && runtimeReady;
 
   const applyRunSnapshots = useCallback((snapshots: DailyTaskRunSnapshot[]) => {
     setTaskRuns((previous) => {
@@ -254,14 +253,26 @@ export function useMonthlyRunner() {
     [canSubmit, refreshRunSnapshots],
   );
 
-  const pauseDaily = useCallback(async (taskId: string) => {
-    await pauseDailyTask(taskId);
-  }, []);
-
-  const getTaskRun = useCallback(
-    (taskId: string) => taskRuns[taskId] ?? null,
-    [taskRuns],
+  const pauseDaily = useCallback(
+    async (taskId: string) => {
+      await pauseDailyTask(taskId).catch(console.error);
+      setTaskRuns((previous) => {
+        const current = previous[taskId] ?? createTaskRunState(taskId);
+        return {
+          ...previous,
+          [taskId]: {
+            ...current,
+            runState: "paused",
+            error: null,
+          },
+        };
+      });
+      await refreshRunSnapshots();
+    },
+    [refreshRunSnapshots],
   );
+
+  const getTaskRun = useCallback((taskId: string) => taskRuns[taskId] ?? null, [taskRuns]);
 
   const resetTaskRun = useCallback((taskId: string) => {
     setTaskRuns((previous) => {

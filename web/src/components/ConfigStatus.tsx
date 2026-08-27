@@ -94,11 +94,7 @@ function ConfigCard({ title, summary, ready, icon: Icon, onClick }: ConfigCardPr
   );
 }
 
-export default function ConfigStatus({
-  status,
-  error,
-  onRuntimeStatusChanged,
-}: Props) {
+export default function ConfigStatus({ status, error, onRuntimeStatusChanged }: Props) {
   const [courseManagerOpen, setCourseManagerOpen] = useState(false);
   const [openIdManagerOpen, setOpenIdManagerOpen] = useState(false);
   const [shopManagerOpen, setShopManagerOpen] = useState(false);

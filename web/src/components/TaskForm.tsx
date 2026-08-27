@@ -3,18 +3,8 @@ import { InfoIcon, PlayIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Field,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
@@ -75,18 +65,16 @@ export default function TaskForm({
     () => ({
       readingUrl: form.readingUrl.trim() ? null : "请输入阅读链接。",
       fc: form.fc.trim() ? null : "请选择 FC。",
-      shopcodesInput: form.shopcodesInput.trim()
-        ? null
-        : "请至少输入一个 Shop Code，每行一个。",
+      shopcodesInput: form.shopcodesInput.trim() ? null : "请至少输入一个 Shop Code，每行一个。",
     }),
-    [form]
+    [form],
   );
 
   const markTouched = (field: FieldName) => {
     setTouched((prev) => ({ ...prev, [field]: true }));
   };
 
-  const showError = (field: FieldName) => touched[field] ? errors[field] : null;
+  const showError = (field: FieldName) => (touched[field] ? errors[field] : null);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -114,9 +102,7 @@ export default function TaskForm({
           <Alert variant="destructive">
             <InfoIcon />
             <AlertTitle>暂时无法执行</AlertTitle>
-            <AlertDescription>
-              运行时状态读取失败，请先确认桌面端后端是否可用。
-            </AlertDescription>
+            <AlertDescription>运行时状态读取失败，请先确认桌面端后端是否可用。</AlertDescription>
           </Alert>
         )}
 
@@ -124,9 +110,7 @@ export default function TaskForm({
           <Alert className="border-amber-200/80 bg-amber-50/90 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/25 dark:text-amber-200">
             <InfoIcon />
             <AlertTitle>配置未就绪</AlertTitle>
-            <AlertDescription>
-              当前配置文件不完整，开始执行按钮会保持禁用。
-            </AlertDescription>
+            <AlertDescription>当前配置文件不完整，开始执行按钮会保持禁用。</AlertDescription>
           </Alert>
         )}
 
@@ -191,12 +175,7 @@ export default function TaskForm({
             </Field>
           </FieldGroup>
 
-          <Button
-            type="submit"
-            size="lg"
-            className="w-full"
-            disabled={!canSubmit || running}
-          >
+          <Button type="submit" size="lg" className="w-full" disabled={!canSubmit || running}>
             {running ? <Spinner data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
             {running ? "执行中…" : "开始执行"}
           </Button>

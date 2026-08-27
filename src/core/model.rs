@@ -59,6 +59,8 @@ impl From<i32> for TaskItemOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskItemResult {
+  #[serde(default)]
+  pub result_id: Option<i64>,
   pub index: usize,
   #[serde(default)]
   pub executed_date: Option<String>,
@@ -198,4 +200,46 @@ pub struct MonthlyTaskPlanPreview {
   pub target_days: usize,
   #[serde(default)]
   pub daily_plans: Vec<DailyTask>,
+}
+
+pub fn add_days_to_date(date: &str, delta_days: i64) -> String {
+  if let Some((year, month, day)) = parse_date_parts(date) {
+    let days = days_from_civil(year, month, day) + delta_days;
+    let (new_year, new_month, new_day) = civil_from_days(days);
+    return format!("{new_year:04}-{new_month:02}-{new_day:02}");
+  }
+
+  date.to_string()
+}
+
+pub fn parse_date_parts(date: &str) -> Option<(i32, u32, u32)> {
+  let year = date.get(0..4)?.parse().ok()?;
+  let month = date.get(5..7)?.parse().ok()?;
+  let day = date.get(8..10)?.parse().ok()?;
+  Some((year, month, day))
+}
+
+pub fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
+  let year = year - if month <= 2 { 1 } else { 0 };
+  let era = if year >= 0 { year } else { year - 399 } / 400;
+  let yoe = year - era * 400;
+  let month = month as i32;
+  let day = day as i32;
+  let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  (era * 146_097 + doe - 719_468) as i64
+}
+
+pub fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
+  let z = days_since_unix_epoch + 719_468;
+  let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+  let doe = z - era * 146_097;
+  let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+  let y = yoe + era * 400;
+  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  let mp = (5 * doy + 2) / 153;
+  let d = doy - (153 * mp + 2) / 5 + 1;
+  let m = mp + if mp < 10 { 3 } else { -9 };
+  let year = y + if m <= 2 { 1 } else { 0 };
+  (year as i32, m as u32, d as u32)
 }

@@ -41,6 +41,7 @@ export interface QuickRunArchiveResult {
 }
 
 export interface TaskItemResult {
+  result_id?: number | null;
   index: number;
   executed_date?: string | null;
   submit_err?: number | null;
