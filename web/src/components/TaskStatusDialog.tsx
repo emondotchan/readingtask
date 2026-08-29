@@ -23,13 +23,10 @@ import {
   RotateCcwIcon,
   LockIcon,
   SquareIcon,
-  CalendarDaysIcon,
 } from "lucide-react";
 import {
   getTaskDailyTasks,
   getTaskResults,
-  previewMonthlyTaskPlan,
-  rescheduleMonthlyTaskPlans,
   retryTaskResult,
   saveDailyTask,
 } from "@/api/commands";
@@ -50,7 +47,6 @@ import type { MonthlyTaskRunState } from "@/features/useMonthlyRunner";
 
 interface Props {
   task: MonthlyTask | null;
-  monthlyCompletionTarget?: number | null;
   onBack: () => void;
   currentRun?: MonthlyTaskRunState;
   executeDaily?: (taskId: string, date: string) => Promise<void>;
@@ -96,7 +92,6 @@ const DAILY_TASK_STATUS_META = {
 
 export function TaskStatusDialog({
   task,
-  monthlyCompletionTarget,
   onBack,
   currentRun,
   executeDaily,
@@ -113,8 +108,6 @@ export function TaskStatusDialog({
   const [editorText, setEditorText] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savingDay, setSavingDay] = useState<string | null>(null);
-  const [rescheduling, setRescheduling] = useState(false);
-  const [rescheduleMessage, setRescheduleMessage] = useState<string | null>(null);
   const [retryingResultKey, setRetryingResultKey] = useState<string | null>(null);
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
   const [batchRetryProgress, setBatchRetryProgress] = useState<{
@@ -224,13 +217,7 @@ export function TaskStatusDialog({
     setDailyPlansLoading(true);
     try {
       const progress = await getTaskDailyTasks(task.id);
-      if (progress.length > 0) {
-        setDailyPlans(progress);
-        return;
-      }
-
-      const preview: MonthlyTaskPlanPreview = await previewMonthlyTaskPlan(task);
-      setDailyPlans(preview.daily_plans);
+      setDailyPlans(progress);
     } catch (error) {
       console.error(error);
       setDailyPlans([]);
@@ -367,10 +354,6 @@ export function TaskStatusDialog({
     return filteredHistoryResults.slice(start, start + pageSize);
   }, [currentPage, filteredHistoryResults]);
 
-  const completedDays = useMemo(
-    () => dailyPlans.filter((item) => isCompletedDay(item)).length,
-    [dailyPlans],
-  );
   const completedCount = useMemo(
     () => dailyPlans.reduce((sum, item) => sum + item.completed_count, 0),
     [dailyPlans],
@@ -389,40 +372,20 @@ export function TaskStatusDialog({
     return entries;
   }, [getResultSucceeded, mergedHistoryResults]);
 
-  const todayStr = useMemo(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }, []);
-
-  const hasPastUnfinishedPlans = useMemo(
-    () => dailyPlans.some((d) => d.date < todayStr && !isCompletedDay(d) && !d.is_locked),
-    [dailyPlans, todayStr],
-  );
+  const usedShopCount = useMemo(() => {
+    const seen = new Set<string>();
+    for (const item of mergedHistoryResults) {
+      if (item.shop_code && getResultSucceeded(item)) {
+        seen.add(item.shop_code);
+      }
+    }
+    return seen.size;
+  }, [getResultSucceeded, mergedHistoryResults]);
 
   const firstPendingDay = useMemo(
     () => dailyPlans.find((d) => !isCompletedDay(d) && !d.is_locked),
     [dailyPlans],
   );
-
-  const handleReschedule = useCallback(async () => {
-    if (!task) return;
-    setRescheduling(true);
-    setRescheduleMessage(null);
-    try {
-      await rescheduleMonthlyTaskPlans(task.id);
-      await loadDailyPlans();
-      setRescheduleMessage("计划已成功顺延至今日起");
-      setTimeout(() => setRescheduleMessage(null), 3000);
-    } catch (error) {
-      console.error("Failed to reschedule daily tasks", error);
-      setRescheduleMessage("顺延失败: " + getErrorMessage(error));
-    } finally {
-      setRescheduling(false);
-    }
-  }, [loadDailyPlans, task]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -513,27 +476,27 @@ export function TaskStatusDialog({
             <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <div className="flex h-24 flex-col justify-between rounded-xl border border-border bg-card p-4 shadow-sm">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  月度完成门槛
+                  月度目标
                 </span>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-bold text-foreground">
-                    {monthlyCompletionTarget ?? task.total_target}
+                    {task.total_target}
                   </span>
-                  <span className="text-xs text-muted-foreground">阅读</span>
+                  <span className="text-xs text-muted-foreground">门店</span>
                 </div>
               </div>
               <div className="flex h-24 flex-col justify-between rounded-xl border border-border bg-card p-4 shadow-sm">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  完成天数
+                  已使用门店
                 </span>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-foreground">{completedDays}</span>
-                  <span className="text-xs text-muted-foreground">/ {task.target_days} 天</span>
+                  <span className="text-2xl font-bold text-foreground">{usedShopCount}</span>
+                  <span className="text-xs text-muted-foreground">/ {task.total_target} 家</span>
                 </div>
               </div>
               <div className="flex h-24 flex-col justify-between rounded-xl border border-emerald-200 bg-emerald-50/20 p-4 shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700/70 dark:text-emerald-300/70">
-                  累计已完成
+                  累计成功
                 </span>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-300">
@@ -559,30 +522,8 @@ export function TaskStatusDialog({
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-semibold text-foreground">每日任务明细</h3>
-                  {rescheduleMessage && (
-                    <Badge variant="secondary" className="text-xs">
-                      {rescheduleMessage}
-                    </Badge>
-                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {hasPastUnfinishedPlans && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300"
-                      onClick={handleReschedule}
-                      disabled={rescheduling || isRunning}
-                      title="将过去未完成/暂停的计划顺延至今日起排期"
-                    >
-                      {rescheduling ? (
-                        <Spinner className="mr-1 size-3.5" />
-                      ) : (
-                        <CalendarDaysIcon className="mr-1 size-3.5" />
-                      )}
-                      顺延未完成计划至今日起
-                    </Button>
-                  )}
                   {firstPendingDay && !isRunning && (
                     <Button
                       size="sm"

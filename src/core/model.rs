@@ -171,6 +171,7 @@ pub struct MonthlyTask {
   #[serde(default = "default_task_type")]
   pub task_type: String,
   pub total_target: usize,
+  #[serde(default)]
   pub target_days: usize,
   pub created_at: String,
   #[serde(default)]
@@ -197,7 +198,10 @@ pub struct DailyTask {
 pub struct MonthlyTaskPlanPreview {
   pub eligible_shop_count: usize,
   pub total_target: usize,
+  #[serde(default)]
   pub target_days: usize,
+  #[serde(default)]
+  pub shopcodes: Vec<String>,
   #[serde(default)]
   pub daily_plans: Vec<DailyTask>,
 }

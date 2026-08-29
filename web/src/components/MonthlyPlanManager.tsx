@@ -128,18 +128,6 @@ function getTaskTypeSortOrder(taskType: TaskType) {
   return taskType === "Avene" ? 0 : 1;
 }
 
-function getMonthlyCompletionPercent(taskType: TaskType) {
-  return taskType === "Avene" ? 65 : 85;
-}
-
-function calculateMonthlyCompletionTarget(task: MonthlyTask, shops: ShopRecord[]) {
-  const eligibleShopCount = shops.filter(
-    (shop) => shop.fc === task.fc_name && taskTypeMatchesShop(task.task_type, shop.shop_type),
-  ).length;
-
-  return Math.ceil((eligibleShopCount * getMonthlyCompletionPercent(task.task_type)) / 100);
-}
-
 function getDailyTaskRunStatus(task: DailyTask | null | undefined) {
   return task?.run_status ?? "not_started";
 }
@@ -175,10 +163,6 @@ export default function MonthlyPlanManager({
   const [courses, setCourses] = useState<CourseRecord[]>([]);
   const [progressMap, setProgressMap] = useState<Record<string, DailyTask | null>>({});
   const [completedCountMap, setCompletedCountMap] = useState<Record<string, number>>({});
-  const [completedDaysMap, setCompletedDaysMap] = useState<Record<string, number>>({});
-  const [monthlyCompletionTargetMap, setMonthlyCompletionTargetMap] = useState<
-    Record<string, number>
-  >({});
   const [createError, setCreateError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -230,15 +214,13 @@ export default function MonthlyPlanManager({
       setCourses([]);
       setProgressMap({});
       setCompletedCountMap({});
-      setCompletedDaysMap({});
-      setMonthlyCompletionTargetMap({});
       setLoadError(null);
       return;
     }
 
     setLoadError(null);
 
-    const [fcsResult, coursesResult, tasksResult, shopsResult] = await Promise.all([
+    const [fcsResult, coursesResult, tasksResult] = await Promise.all([
       getFcs()
         .then((value) => ({ status: "fulfilled", value }) as const)
         .catch((reason) => ({ status: "rejected", reason }) as const),
@@ -246,9 +228,6 @@ export default function MonthlyPlanManager({
         .then((value) => ({ status: "fulfilled", value }) as const)
         .catch((reason) => ({ status: "rejected", reason }) as const),
       getMonthlyTasks()
-        .then((value) => ({ status: "fulfilled", value }) as const)
-        .catch((reason) => ({ status: "rejected", reason }) as const),
-      getShops()
         .then((value) => ({ status: "fulfilled", value }) as const)
         .catch((reason) => ({ status: "rejected", reason }) as const),
     ]);
@@ -273,8 +252,6 @@ export default function MonthlyPlanManager({
       setTasks([]);
       setProgressMap({});
       setCompletedCountMap({});
-      setCompletedDaysMap({});
-      setMonthlyCompletionTargetMap({});
       setLoadError((previous) => previous ?? "月度计划列表加载失败，但仍可继续选择 FC 新建计划。");
       console.error("Failed to load tasks", tasksResult.reason);
       return;
@@ -286,27 +263,12 @@ export default function MonthlyPlanManager({
     if (ts.length === 0) {
       setProgressMap({});
       setCompletedCountMap({});
-      setCompletedDaysMap({});
-      setMonthlyCompletionTargetMap({});
       return;
-    }
-
-    if (shopsResult.status === "fulfilled") {
-      setMonthlyCompletionTargetMap(
-        Object.fromEntries(
-          ts.map((task) => [task.id, calculateMonthlyCompletionTarget(task, shopsResult.value)]),
-        ),
-      );
-    } else {
-      setMonthlyCompletionTargetMap({});
-      setLoadError((previous) => previous ?? "门店列表加载失败，月度完成门槛暂时使用计划目标。");
-      console.error("Failed to load shops", shopsResult.reason);
     }
 
     const today = getTodayDate();
     const progressEntries: Array<readonly [string, DailyTask | null]> = [];
     const completedCountEntries: Array<readonly [string, number]> = [];
-    const completedDaysEntries: Array<readonly [string, number]> = [];
 
     for (const task of ts) {
       try {
@@ -318,10 +280,6 @@ export default function MonthlyPlanManager({
           task.id,
           dailyTasks.reduce((sum, item) => sum + item.completed_count, 0),
         ] as const);
-        completedDaysEntries.push([
-          task.id,
-          dailyTasks.filter((item) => isCompletedDay(item)).length,
-        ] as const);
       } catch (e) {
         console.error(`Failed to load daily tasks for task ${task.id}`, e);
       }
@@ -329,7 +287,6 @@ export default function MonthlyPlanManager({
 
     setProgressMap(Object.fromEntries(progressEntries));
     setCompletedCountMap(Object.fromEntries(completedCountEntries));
-    setCompletedDaysMap(Object.fromEntries(completedDaysEntries));
   }, [runtimeConfigured]);
 
   useEffect(() => {
@@ -583,7 +540,7 @@ export default function MonthlyPlanManager({
           reading_url: draft.readingUrl.trim(),
           task_type: draft.taskType,
           total_target: draft.preview.total_target,
-          target_days: draft.preview.target_days,
+          target_days: 0,
           created_at: createdAt,
           shopcodes: customShopcodes,
           excluded_open_ids: excludedOpenIds,
@@ -618,12 +575,7 @@ export default function MonthlyPlanManager({
     try {
       const todayDate = getTodayDate();
       const tasksToRun = tasks.filter((task) => {
-        const monthlyCompletionTarget = monthlyCompletionTargetMap[task.id] ?? task.total_target;
-        if (
-          monthlyCompletionTarget > 0 &&
-          (completedCountMap[task.id] ?? 0) >= monthlyCompletionTarget
-        )
-          return false;
+        if ((completedCountMap[task.id] ?? 0) >= task.total_target) return false;
         const progress = progressMap[task.id];
         if (progress && isCompletedDay(progress)) return false;
         const taskRun = getTaskRun(task.id);
@@ -635,7 +587,7 @@ export default function MonthlyPlanManager({
       if (!signal.aborted && tasksToRun.length > 0) {
         await executeDailyBatch(
           tasksToRun.map((task) => task.id),
-          "auto",
+          todayDate,
         );
       }
     } finally {
@@ -663,9 +615,6 @@ export default function MonthlyPlanManager({
       {selectedTask ? (
         <TaskStatusDialog
           task={selectedTask}
-          monthlyCompletionTarget={
-            monthlyCompletionTargetMap[selectedTask.id] ?? selectedTask.total_target
-          }
           onBack={() => {
             setSelectedTask(null);
             void loadData();
@@ -777,15 +726,15 @@ export default function MonthlyPlanManager({
                       类型
                     </TableHead>
                     <TableHead className="sticky top-0 z-10 w-[180px] bg-card text-center text-xs font-semibold uppercase shadow-[0_1px_0_0_var(--color-border)]">
-                      计划 / 今日进度
-                    </TableHead>
-                    <TableHead className="sticky top-0 z-10 w-[260px] bg-card text-center text-xs font-semibold uppercase shadow-[0_1px_0_0_var(--color-border)]">
-                      月度进度
-                    </TableHead>
-                    <TableHead className="sticky top-0 z-10 w-[150px] bg-card text-center text-xs font-semibold uppercase shadow-[0_1px_0_0_var(--color-border)]">
-                      状态
+                      今日进度
                     </TableHead>
                     <TableHead className="sticky top-0 z-10 w-[220px] bg-card text-center text-xs font-semibold uppercase shadow-[0_1px_0_0_var(--color-border)]">
+                      月度进度
+                    </TableHead>
+                    <TableHead className="sticky top-0 z-10 w-[140px] bg-card text-center text-xs font-semibold uppercase shadow-[0_1px_0_0_var(--color-border)]">
+                      状态
+                    </TableHead>
+                    <TableHead className="sticky top-0 z-10 w-[180px] bg-card text-center text-xs font-semibold uppercase shadow-[0_1px_0_0_var(--color-border)]">
                       操作
                     </TableHead>
                   </TableRow>
@@ -808,9 +757,6 @@ export default function MonthlyPlanManager({
                         const todayTarget = prog ? getDailyTaskProgressTotal(prog) : "-";
                         const todayCompleted = prog ? prog.completed_count : 0;
                         const completedCount = completedCountMap[task.id] ?? 0;
-                        const completedDays = completedDaysMap[task.id] ?? 0;
-                        const monthlyCompletionTarget =
-                          monthlyCompletionTargetMap[task.id] ?? task.total_target;
                         const todayProgress =
                           typeof todayTarget === "number" && todayTarget > 0
                             ? Math.min(100, (todayCompleted / todayTarget) * 100)
@@ -818,8 +764,7 @@ export default function MonthlyPlanManager({
                         const isRunning = displayRunState === "running";
                         const isPaused = displayRunState === "paused";
                         const isCompletedMonth =
-                          (monthlyCompletionTarget > 0 &&
-                            completedCount >= monthlyCompletionTarget) ||
+                          (task.total_target > 0 && completedCount >= task.total_target) ||
                           displayRunState === "monthly-completed";
                         const isError = displayRunState === "error";
 
@@ -852,57 +797,73 @@ export default function MonthlyPlanManager({
                               </Badge>
                             </TableCell>
                             <TableCell className="px-4 text-center align-middle">
-                              <div className="flex flex-col items-center justify-center gap-1.5">
-                                {prog?.date && (
+                              {prog ? (
+                                <div className="flex flex-col items-center justify-center gap-1.5">
                                   <span className="font-mono text-[11px] text-muted-foreground">
                                     {prog.date === today ? "今日" : prog.date}
                                   </span>
-                                )}
-                                <div className="flex items-center justify-center gap-3">
-                                  <div className="w-16 shrink-0 h-1.5 overflow-hidden rounded-full bg-muted">
+                                  <div className="flex items-center justify-center gap-3">
+                                    <div className="w-16 shrink-0 h-1.5 overflow-hidden rounded-full bg-muted">
+                                      <div
+                                        className={cn(
+                                          "h-full transition-all duration-500",
+                                          isCompletedToday ? "bg-emerald-500" : "bg-sky-500",
+                                        )}
+                                        style={{ width: `${todayProgress}%` }}
+                                      />
+                                    </div>
+                                    <div className="flex items-baseline justify-center gap-1 shrink-0">
+                                      <span
+                                        className={cn(
+                                          "text-sm font-bold tabular-nums",
+                                          isCompletedToday
+                                            ? "text-emerald-600 dark:text-emerald-400"
+                                            : "text-foreground",
+                                        )}
+                                      >
+                                        {todayCompleted}
+                                      </span>
+                                      <span className="text-xs text-muted-foreground">
+                                        / {todayTarget}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : isCompletedMonth ? (
+                                <span className="text-xs text-muted-foreground">本月已完成</span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">未开始 (15~25家)</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="px-4 align-middle">
+                              <div className="flex flex-col items-center justify-center gap-1.5">
+                                <div className="flex items-center justify-center gap-3 w-full max-w-[180px]">
+                                  <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-muted">
                                     <div
                                       className={cn(
                                         "h-full transition-all duration-500",
-                                        isCompletedToday ? "bg-emerald-500" : "bg-sky-500",
+                                        isCompletedMonth ? "bg-emerald-500" : "bg-primary",
                                       )}
-                                      style={{ width: `${todayProgress}%` }}
+                                      style={{
+                                        width: `${task.total_target > 0 ? Math.min(100, (completedCount / task.total_target) * 100) : 0}%`,
+                                      }}
                                     />
                                   </div>
                                   <div className="flex items-baseline justify-center gap-1 shrink-0">
                                     <span
                                       className={cn(
                                         "text-sm font-bold tabular-nums",
-                                        isCompletedToday
+                                        isCompletedMonth
                                           ? "text-emerald-600 dark:text-emerald-400"
                                           : "text-foreground",
                                       )}
                                     >
-                                      {todayCompleted}
+                                      {completedCount}
                                     </span>
                                     <span className="text-xs text-muted-foreground">
-                                      / {todayTarget}
+                                      / {task.total_target}
                                     </span>
                                   </div>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="px-4 align-middle">
-                              <div className="flex items-center justify-center gap-2">
-                                <div className="flex items-center gap-1.5 rounded-lg bg-muted/50 px-2.5 py-1.5">
-                                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                    完成门槛
-                                  </span>
-                                  <span className="text-sm font-semibold tabular-nums text-foreground whitespace-nowrap">
-                                    {completedCount} / {monthlyCompletionTarget}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5 rounded-lg bg-muted/50 px-2.5 py-1.5">
-                                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                    完成天数
-                                  </span>
-                                  <span className="text-sm font-semibold tabular-nums text-foreground whitespace-nowrap">
-                                    {completedDays} / {task.target_days}
-                                  </span>
                                 </div>
                               </div>
                             </TableCell>
@@ -1173,7 +1134,7 @@ export default function MonthlyPlanManager({
                       return (
                         <div
                           key={taskType}
-                          className="flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-4"
+                          className="flex flex-col gap-2 rounded-xl border border-border bg-muted/30 p-4"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <Badge
@@ -1187,25 +1148,9 @@ export default function MonthlyPlanManager({
                               {taskType}
                             </Badge>
                             <span className="text-sm text-muted-foreground">
-                              符合条件门店 {preview.eligible_shop_count} 家。 任务目标{" "}
-                              {preview.total_target} 家。 预计 {preview.target_days} 天完成。
+                              符合条件门店 {preview.eligible_shop_count} 家。 月度目标门店{" "}
+                              {preview.total_target} 家。
                             </span>
-                          </div>
-                          <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
-                            {preview.daily_plans.map((plan) => (
-                              <div
-                                key={`${taskType}:${plan.date}`}
-                                className="rounded-lg border border-border/70 bg-background/80 p-3 text-xs"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="font-medium text-foreground">{plan.date}</span>
-                                  <Badge variant="secondary">{plan.target_count} 家</Badge>
-                                </div>
-                                <div className="mt-1 break-all text-muted-foreground">
-                                  {plan.shopcodes.join(", ")}
-                                </div>
-                              </div>
-                            ))}
                           </div>
                         </div>
                       );
