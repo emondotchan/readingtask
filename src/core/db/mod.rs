@@ -29,6 +29,7 @@ pub use shops::{
 pub use tasks::{
   add_monthly_task, delete_monthly_task, find_monthly_tasks_by_month_fc_course,
   get_all_daily_tasks_for_task, get_all_monthly_tasks, get_daily_task,
-  get_first_pending_daily_task, pause_running_daily_tasks_for_task,
-  reschedule_unfinished_daily_tasks, save_daily_task, update_daily_task_run_status,
+  get_first_pending_daily_task, get_monthly_task, pause_running_daily_tasks_for_task,
+  reschedule_unfinished_daily_tasks, rollover_uncompleted_shops_to_date, save_daily_task,
+  update_daily_task_run_status, update_monthly_task_daily_target_range,
 };

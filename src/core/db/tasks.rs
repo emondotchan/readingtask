@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use rusqlite::{OptionalExtension, params};
 
 use super::context::{DbContext, get_conn};
@@ -12,13 +14,13 @@ pub fn find_monthly_tasks_by_month_fc_course(
   course_id: &str,
 ) -> Result<Vec<MonthlyTask>, AppError> {
   let conn = get_conn(db)?;
-  let mut stmt = conn.prepare("SELECT id, fc_name, s_manager_id, s_course_id, reading_url, task_type, total_target, target_days, created_at, shopcodes_json, excluded_open_ids_json FROM monthly_tasks WHERE id LIKE ?1 AND fc_name = ?2 AND s_course_id = ?3").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  let mut stmt = conn.prepare("SELECT id, fc_name, s_manager_id, s_course_id, reading_url, task_type, total_target, completion_threshold_percent, target_days, created_at, shopcodes_json, excluded_open_ids_json, min_daily_target, max_daily_target FROM monthly_tasks WHERE id LIKE ?1 AND fc_name = ?2 AND s_course_id = ?3").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   let tasks = stmt
     .query_map(
       params![format!("{}%", month_prefix), fc_name, course_id],
       |row| {
-        let shopcodes_json: String = row.get(9)?;
-        let excluded_open_ids_json: String = row.get(10)?;
+        let shopcodes_json: String = row.get(10)?;
+        let excluded_open_ids_json: String = row.get(11)?;
         Ok(MonthlyTask {
           id: row.get(0)?,
           fc_name: row.get(1)?,
@@ -27,10 +29,13 @@ pub fn find_monthly_tasks_by_month_fc_course(
           reading_url: row.get(4)?,
           task_type: row.get(5)?,
           total_target: row.get::<_, i64>(6)? as usize,
-          target_days: row.get::<_, i64>(7)? as usize,
-          created_at: row.get(8)?,
+          completion_threshold_percent: row.get::<_, Option<i64>>(7)?.map(|v| v as u8),
+          target_days: row.get::<_, i64>(8)? as usize,
+          created_at: row.get(9)?,
           shopcodes: serde_json::from_str(&shopcodes_json).unwrap_or_default(),
           excluded_open_ids: serde_json::from_str(&excluded_open_ids_json).unwrap_or_default(),
+          min_daily_target: row.get::<_, Option<i64>>(12)?.map(|v| v as usize),
+          max_daily_target: row.get::<_, Option<i64>>(13)?.map(|v| v as usize),
         })
       },
     )
@@ -42,11 +47,11 @@ pub fn find_monthly_tasks_by_month_fc_course(
 
 pub fn get_all_monthly_tasks(db: &DbContext) -> Result<Vec<MonthlyTask>, AppError> {
   let conn = get_conn(db)?;
-  let mut stmt = conn.prepare("SELECT id, fc_name, s_manager_id, s_course_id, reading_url, task_type, total_target, target_days, created_at, shopcodes_json, excluded_open_ids_json FROM monthly_tasks ORDER BY created_at DESC").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  let mut stmt = conn.prepare("SELECT id, fc_name, s_manager_id, s_course_id, reading_url, task_type, total_target, completion_threshold_percent, target_days, created_at, shopcodes_json, excluded_open_ids_json, min_daily_target, max_daily_target FROM monthly_tasks ORDER BY created_at DESC").map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   let tasks = stmt
     .query_map([], |row| {
-      let shopcodes_json: String = row.get(9)?;
-      let excluded_open_ids_json: String = row.get(10)?;
+      let shopcodes_json: String = row.get(10)?;
+      let excluded_open_ids_json: String = row.get(11)?;
       Ok(MonthlyTask {
         id: row.get(0)?,
         fc_name: row.get(1)?,
@@ -55,16 +60,110 @@ pub fn get_all_monthly_tasks(db: &DbContext) -> Result<Vec<MonthlyTask>, AppErro
         reading_url: row.get(4)?,
         task_type: row.get(5)?,
         total_target: row.get::<_, i64>(6)? as usize,
-        target_days: row.get::<_, i64>(7)? as usize,
-        created_at: row.get(8)?,
+        completion_threshold_percent: row.get::<_, Option<i64>>(7)?.map(|v| v as u8),
+        target_days: row.get::<_, i64>(8)? as usize,
+        created_at: row.get(9)?,
         shopcodes: serde_json::from_str(&shopcodes_json).unwrap_or_default(),
         excluded_open_ids: serde_json::from_str(&excluded_open_ids_json).unwrap_or_default(),
+        min_daily_target: row.get::<_, Option<i64>>(12)?.map(|v| v as usize),
+        max_daily_target: row.get::<_, Option<i64>>(13)?.map(|v| v as usize),
       })
     })
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?
     .collect::<Result<Vec<_>, _>>()
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   Ok(tasks)
+}
+
+pub fn get_monthly_task(db: &DbContext, task_id: &str) -> Result<Option<MonthlyTask>, AppError> {
+  let conn = get_conn(db)?;
+  let mut stmt = conn
+    .prepare(
+      "SELECT id, fc_name, s_manager_id, s_course_id, reading_url, task_type, total_target, completion_threshold_percent, target_days, created_at, shopcodes_json, excluded_open_ids_json, min_daily_target, max_daily_target
+       FROM monthly_tasks
+       WHERE id = ?1",
+    )
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  let mut rows = stmt
+    .query_map(params![task_id], |row| {
+      let shopcodes_json: String = row.get(10)?;
+      let excluded_open_ids_json: String = row.get(11)?;
+      Ok(MonthlyTask {
+        id: row.get(0)?,
+        fc_name: row.get(1)?,
+        s_manager_id: row.get(2)?,
+        s_course_id: row.get(3)?,
+        reading_url: row.get(4)?,
+        task_type: row.get(5)?,
+        total_target: row.get::<_, i64>(6)? as usize,
+        completion_threshold_percent: row.get::<_, Option<i64>>(7)?.map(|v| v as u8),
+        target_days: row.get::<_, i64>(8)? as usize,
+        created_at: row.get(9)?,
+        shopcodes: serde_json::from_str(&shopcodes_json).unwrap_or_default(),
+        excluded_open_ids: serde_json::from_str(&excluded_open_ids_json).unwrap_or_default(),
+        min_daily_target: row.get::<_, Option<i64>>(12)?.map(|v| v as usize),
+        max_daily_target: row.get::<_, Option<i64>>(13)?.map(|v| v as usize),
+      })
+    })
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+
+  if let Some(row) = rows.next() {
+    Ok(Some(row.map_err(|e| {
+      AppError::ResourceUnavailableError(e.to_string())
+    })?))
+  } else {
+    Ok(None)
+  }
+}
+
+pub fn update_monthly_task_daily_target_range(
+  db: &DbContext,
+  task_id: &str,
+  min_daily_target: Option<usize>,
+  max_daily_target: Option<usize>,
+) -> Result<MonthlyTask, AppError> {
+  match (min_daily_target, max_daily_target) {
+    (Some(min), Some(max)) => {
+      if min == 0 || max == 0 {
+        return Err(AppError::ValidationError(
+          "每日预期完成门店数量必须大于 0".to_string(),
+        ));
+      }
+      if min > max {
+        return Err(AppError::ValidationError(
+          "最小数量不能大于最大数量".to_string(),
+        ));
+      }
+    }
+    (None, None) => {}
+    _ => {
+      return Err(AppError::ValidationError(
+        "请同时设置最小与最大数量，或清空恢复默认 15~25 家".to_string(),
+      ));
+    }
+  }
+
+  let conn = get_conn(db)?;
+  let affected = conn
+    .execute(
+      "UPDATE monthly_tasks SET min_daily_target = ?1, max_daily_target = ?2 WHERE id = ?3",
+      params![
+        min_daily_target.map(|v| v as i64),
+        max_daily_target.map(|v| v as i64),
+        task_id
+      ],
+    )
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+
+  if affected == 0 {
+    return Err(AppError::ResourceUnavailableError(format!(
+      "未找到 ID 为 {} 的月度任务",
+      task_id
+    )));
+  }
+
+  get_monthly_task(db, task_id)?
+    .ok_or_else(|| AppError::ResourceUnavailableError("获取更新后的月度任务失败".to_string()))
 }
 
 pub fn add_monthly_task(db: &DbContext, task: &MonthlyTask) -> Result<(), AppError> {
@@ -74,8 +173,8 @@ pub fn add_monthly_task(db: &DbContext, task: &MonthlyTask) -> Result<(), AppErr
   let excluded_open_ids_json = serde_json::to_string(&task.excluded_open_ids)
     .map_err(|e| AppError::ValidationError(e.to_string()))?;
   conn.execute(
-        "INSERT OR REPLACE INTO monthly_tasks (id, fc_name, s_manager_id, s_course_id, reading_url, task_type, total_target, target_days, created_at, shopcodes_json, excluded_open_ids_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![task.id, task.fc_name, task.s_manager_id, task.s_course_id, task.reading_url, task.task_type, task.total_target as i64, task.target_days as i64, task.created_at, shopcodes_json, excluded_open_ids_json],
+        "INSERT OR REPLACE INTO monthly_tasks (id, fc_name, s_manager_id, s_course_id, reading_url, task_type, total_target, completion_threshold_percent, target_days, created_at, shopcodes_json, excluded_open_ids_json, min_daily_target, max_daily_target) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![task.id, task.fc_name, task.s_manager_id, task.s_course_id, task.reading_url, task.task_type, task.total_target as i64, task.completion_threshold_percent.map(|v| v as i64), task.target_days as i64, task.created_at, shopcodes_json, excluded_open_ids_json, task.min_daily_target.map(|v| v as i64), task.max_daily_target.map(|v| v as i64)],
     ).map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   Ok(())
 }
@@ -374,4 +473,175 @@ pub fn reschedule_unfinished_daily_tasks(
   tx.commit()
     .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
   get_all_daily_tasks_for_task(db, task_id)
+}
+
+pub fn rollover_uncompleted_shops_to_date(
+  db: &DbContext,
+  task_id: &str,
+  target_date: &str,
+) -> Result<Vec<String>, AppError> {
+  let mut conn = get_conn(db)?;
+  reconcile_daily_task_progress_with_conn(&conn, task_id)?;
+
+  let used_shop_codes = crate::core::db::get_task_result_shop_codes(db, task_id)?;
+
+  let tx = conn
+    .transaction()
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+
+  let mut stmt = tx
+    .prepare(
+      "SELECT task_id, date, target_count, completed_count, is_locked, shopcodes_json, run_status
+       FROM daily_tasks
+       WHERE task_id = ?1 AND date < ?2 AND completed_count < target_count
+       ORDER BY date ASC",
+    )
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+
+  let past_tasks = stmt
+    .query_map(params![task_id, target_date], |row| {
+      let shopcodes_json: String = row.get(5)?;
+      let shopcodes: Vec<String> = serde_json::from_str(&shopcodes_json).unwrap_or_default();
+      Ok(DailyTask {
+        task_id: row.get(0)?,
+        date: row.get(1)?,
+        target_count: row.get::<_, i64>(2)? as usize,
+        completed_count: row.get::<_, i64>(3)? as usize,
+        is_locked: row.get::<_, i64>(4)? != 0,
+        shopcodes,
+        run_status: row.get(6)?,
+      })
+    })
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  drop(stmt);
+
+  let mut target_stmt = tx
+    .prepare(
+      "SELECT task_id, date, target_count, completed_count, is_locked, shopcodes_json, run_status
+       FROM daily_tasks
+       WHERE task_id = ?1 AND date = ?2",
+    )
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+
+  let target_task_opt = target_stmt
+    .query_map(params![task_id, target_date], |row| {
+      let shopcodes_json: String = row.get(5)?;
+      let shopcodes: Vec<String> = serde_json::from_str(&shopcodes_json).unwrap_or_default();
+      Ok(DailyTask {
+        task_id: row.get(0)?,
+        date: row.get(1)?,
+        target_count: row.get::<_, i64>(2)? as usize,
+        completed_count: row.get::<_, i64>(3)? as usize,
+        is_locked: row.get::<_, i64>(4)? != 0,
+        shopcodes,
+        run_status: row.get(6)?,
+      })
+    })
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?
+    .next()
+    .transpose()
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  drop(target_stmt);
+
+  let target_existing_codes: HashSet<String> = target_task_opt
+    .as_ref()
+    .map(|t| t.shopcodes.iter().cloned().collect())
+    .unwrap_or_default();
+
+  let mut rollover_shopcodes = Vec::new();
+  let mut rollover_set = HashSet::new();
+
+  for past_task in past_tasks {
+    let mut completed_shops = Vec::new();
+    let mut uncompleted_shops = Vec::new();
+
+    for code in past_task.shopcodes {
+      if used_shop_codes.contains(&code) {
+        completed_shops.push(code);
+      } else {
+        uncompleted_shops.push(code);
+      }
+    }
+
+    while completed_shops.len() < past_task.completed_count && !uncompleted_shops.is_empty() {
+      completed_shops.push(uncompleted_shops.remove(0));
+    }
+
+    if uncompleted_shops.is_empty() {
+      if !past_task.is_locked {
+        tx.execute(
+          "UPDATE daily_tasks SET is_locked = 1, run_status = 'completed' WHERE task_id = ?1 AND date = ?2",
+          params![past_task.task_id, past_task.date],
+        )
+        .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+      }
+      continue;
+    }
+
+    for code in uncompleted_shops {
+      if !target_existing_codes.contains(&code) && !rollover_set.contains(&code) {
+        rollover_set.insert(code.clone());
+        rollover_shopcodes.push(code);
+      }
+    }
+
+    if completed_shops.is_empty() {
+      tx.execute(
+        "DELETE FROM daily_tasks WHERE task_id = ?1 AND date = ?2",
+        params![past_task.task_id, past_task.date],
+      )
+      .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+    } else {
+      let shopcodes_json = serde_json::to_string(&completed_shops)
+        .map_err(|e| AppError::ValidationError(e.to_string()))?;
+      let count = completed_shops.len() as i64;
+      tx.execute(
+        "UPDATE daily_tasks
+         SET shopcodes_json = ?1, target_count = ?2, completed_count = ?3, is_locked = 1, run_status = 'completed'
+         WHERE task_id = ?4 AND date = ?5",
+        params![
+          shopcodes_json,
+          count,
+          count,
+          past_task.task_id,
+          past_task.date,
+        ],
+      )
+      .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+    }
+  }
+
+  if let Some(mut target_task) = target_task_opt
+    && !rollover_shopcodes.is_empty()
+  {
+    target_task.shopcodes.extend(rollover_shopcodes.clone());
+    target_task.target_count = target_task.shopcodes.len();
+    if target_task.is_locked || target_task.run_status == "completed" {
+      target_task.is_locked = false;
+      target_task.run_status = "not_started".to_string();
+    }
+    let shopcodes_json = serde_json::to_string(&target_task.shopcodes)
+      .map_err(|e| AppError::ValidationError(e.to_string()))?;
+    tx.execute(
+      "UPDATE daily_tasks
+       SET shopcodes_json = ?1, target_count = ?2, is_locked = ?3, run_status = ?4
+       WHERE task_id = ?5 AND date = ?6",
+      params![
+        shopcodes_json,
+        target_task.target_count as i64,
+        if target_task.is_locked { 1 } else { 0 },
+        target_task.run_status,
+        target_task.task_id,
+        target_task.date,
+      ],
+    )
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+  }
+
+  tx.commit()
+    .map_err(|e| AppError::ResourceUnavailableError(e.to_string()))?;
+
+  Ok(rollover_shopcodes)
 }

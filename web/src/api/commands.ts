@@ -213,6 +213,23 @@ export async function createMonthlyTask(task: MonthlyTask): Promise<MonthlyTaskP
   });
 }
 
+export async function updateMonthlyTaskDailyTargetRange(
+  taskId: string,
+  minDailyTarget: number | null,
+  maxDailyTarget: number | null,
+): Promise<MonthlyTask> {
+  return requestJson<MonthlyTask>(
+    `/monthly-tasks/${encodeURIComponent(taskId)}/daily-target-range`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        minDailyTarget,
+        maxDailyTarget,
+      }),
+    },
+  );
+}
+
 export async function saveDailyTask(task: DailyTask): Promise<void> {
   await requestVoid(`/daily-tasks/${encodeURIComponent(task.task_id)}`, {
     method: "POST",

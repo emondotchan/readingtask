@@ -378,3 +378,80 @@ fn test_targeted_shop_and_openid_queries() {
   assert_eq!(fc_a_oids.len(), 1);
   assert_eq!(fc_a_oids[0].open_id, "oid_a1");
 }
+
+#[test]
+fn test_rollover_uncompleted_shops_to_target_date() {
+  let temp_dir = tempdir().expect("create temp dir");
+  let paths = AppPaths::new_with_db_path(temp_dir.path().join("test.sqlite"));
+  let db = init_db_context(&paths).expect("init db");
+
+  // Day 1 (08-10): planned S1, S2, S3. Completed S1. Uncompleted: S2, S3.
+  save_daily_task(
+    &db,
+    &DailyTask {
+      task_id: "task-roll".to_string(),
+      date: "2026-08-10".to_string(),
+      target_count: 3,
+      completed_count: 1,
+      is_locked: false,
+      run_status: "paused".to_string(),
+      shopcodes: vec!["S1".to_string(), "S2".to_string(), "S3".to_string()],
+    },
+  )
+  .expect("save day 1");
+
+  // Record S1 in task_results as Success
+  let res_s1 = TaskItemResult {
+    result_id: None,
+    index: 1,
+    executed_date: Some("2026-08-10 10:00:00".to_string()),
+    submit_err: Some(0),
+    rtn_msg: None,
+    read_id: Some("rid1".to_string()),
+    open_id: "oid1".to_string(),
+    shop_code: "S1".to_string(),
+    province: "P".to_string(),
+    city: "C".to_string(),
+    http_status: Some(200),
+    response_text: None,
+    outcome: TaskItemOutcome::Success,
+  };
+  save_task_result(&db, "task-roll", &res_s1).expect("save s1 result");
+
+  // Day 2 (08-11): already has a task with S4
+  save_daily_task(
+    &db,
+    &DailyTask {
+      task_id: "task-roll".to_string(),
+      date: "2026-08-11".to_string(),
+      target_count: 1,
+      completed_count: 0,
+      is_locked: false,
+      run_status: "not_started".to_string(),
+      shopcodes: vec!["S4".to_string()],
+    },
+  )
+  .expect("save day 2");
+
+  // Rollover to Day 2 (08-11)
+  let rolled =
+    rollover_uncompleted_shops_to_date(&db, "task-roll", "2026-08-11").expect("rollover");
+  assert_eq!(rolled, vec!["S2", "S3"]);
+
+  // Day 1 should now be completed and locked with only S1
+  let day1 = get_daily_task(&db, "task-roll", "2026-08-10")
+    .unwrap()
+    .unwrap();
+  assert_eq!(day1.shopcodes, vec!["S1"]);
+  assert_eq!(day1.target_count, 1);
+  assert_eq!(day1.completed_count, 1);
+  assert!(day1.is_locked);
+  assert_eq!(day1.run_status, "completed");
+
+  // Day 2 should now have S4 + S2 + S3 (target_count = 3)
+  let day2 = get_daily_task(&db, "task-roll", "2026-08-11")
+    .unwrap()
+    .unwrap();
+  assert_eq!(day2.shopcodes, vec!["S4", "S2", "S3"]);
+  assert_eq!(day2.target_count, 3);
+}

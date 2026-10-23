@@ -49,6 +49,10 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
     )
     .route("/monthly-tasks/{id}", delete(monthly::delete_monthly_task))
     .route(
+      "/monthly-tasks/{id}/daily-target-range",
+      post(monthly::update_monthly_task_daily_target_range),
+    )
+    .route(
       "/monthly-tasks/{id}/reschedule",
       post(monthly::reschedule_monthly_task_plans),
     )

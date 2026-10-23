@@ -16,7 +16,7 @@ pub fn init_db(db: &DbContext) -> Result<(), AppError> {
          CREATE TABLE IF NOT EXISTS shops (shop_code TEXT PRIMARY KEY, province TEXT, city TEXT, shop_name TEXT NOT NULL DEFAULT '', fc TEXT, shop_type INTEGER);
          CREATE TABLE IF NOT EXISTS fcs (name TEXT PRIMARY KEY, manager_id TEXT);
          CREATE TABLE IF NOT EXISTS courses (month TEXT, course_id TEXT, task_type TEXT, PRIMARY KEY(month, course_id, task_type));
-         CREATE TABLE IF NOT EXISTS monthly_tasks (id TEXT PRIMARY KEY, fc_name TEXT, s_manager_id TEXT, s_course_id TEXT, reading_url TEXT NOT NULL DEFAULT '', task_type TEXT, total_target INTEGER, target_days INTEGER, created_at TEXT, shopcodes_json TEXT, excluded_open_ids_json TEXT NOT NULL DEFAULT '[]');
+         CREATE TABLE IF NOT EXISTS monthly_tasks (id TEXT PRIMARY KEY, fc_name TEXT, s_manager_id TEXT, s_course_id TEXT, reading_url TEXT NOT NULL DEFAULT '', task_type TEXT, total_target INTEGER, completion_threshold_percent INTEGER, target_days INTEGER, created_at TEXT, shopcodes_json TEXT, excluded_open_ids_json TEXT NOT NULL DEFAULT '[]', min_daily_target INTEGER, max_daily_target INTEGER);
          CREATE TABLE IF NOT EXISTS daily_tasks (task_id TEXT, date TEXT, target_count INTEGER, completed_count INTEGER, is_locked INTEGER NOT NULL DEFAULT 0, shopcodes_json TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(task_id, date));
          CREATE TABLE IF NOT EXISTS task_results (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, timestamp_micros INTEGER, index_num INTEGER, open_id TEXT, shop_code TEXT, province TEXT, city TEXT, http_status INTEGER, response_text TEXT, outcome INTEGER, rtn_msg TEXT, read_id TEXT);
          CREATE TABLE IF NOT EXISTS sys_metadata (key TEXT PRIMARY KEY, value TEXT);"
@@ -72,6 +72,42 @@ fn ensure_monthly_tasks_schema(conn: &Connection) -> Result<(), AppError> {
     conn
       .execute(
         "ALTER TABLE monthly_tasks ADD COLUMN reading_url TEXT NOT NULL DEFAULT ''",
+        [],
+      )
+      .map_err(|e| {
+        AppError::ResourceUnavailableError(format!("更新 monthly_tasks 表失败: {}", e))
+      })?;
+  }
+
+  if !columns
+    .iter()
+    .any(|column| column == "completion_threshold_percent")
+  {
+    conn
+      .execute(
+        "ALTER TABLE monthly_tasks ADD COLUMN completion_threshold_percent INTEGER",
+        [],
+      )
+      .map_err(|e| {
+        AppError::ResourceUnavailableError(format!("更新 monthly_tasks 表失败: {}", e))
+      })?;
+  }
+
+  if !columns.iter().any(|column| column == "min_daily_target") {
+    conn
+      .execute(
+        "ALTER TABLE monthly_tasks ADD COLUMN min_daily_target INTEGER",
+        [],
+      )
+      .map_err(|e| {
+        AppError::ResourceUnavailableError(format!("更新 monthly_tasks 表失败: {}", e))
+      })?;
+  }
+
+  if !columns.iter().any(|column| column == "max_daily_target") {
+    conn
+      .execute(
+        "ALTER TABLE monthly_tasks ADD COLUMN max_daily_target INTEGER",
         [],
       )
       .map_err(|e| {

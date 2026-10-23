@@ -103,10 +103,13 @@ export interface MonthlyTask {
   reading_url: string;
   task_type: "Avene" | "Klorane";
   total_target: number;
+  completion_threshold_percent?: number | null;
   target_days?: number;
   created_at: string;
   shopcodes: string[];
   excluded_open_ids: string[];
+  min_daily_target?: number | null;
+  max_daily_target?: number | null;
 }
 
 export interface DailyTask {

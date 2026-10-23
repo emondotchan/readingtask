@@ -78,6 +78,13 @@ pub struct ReschedulePlansInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDailyTargetRangeInput {
+  pub min_daily_target: Option<usize>,
+  pub max_daily_target: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct DailyTaskQuery {
   pub date: String,
 }

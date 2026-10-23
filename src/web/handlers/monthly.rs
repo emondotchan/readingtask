@@ -6,7 +6,7 @@ use log::Level;
 use crate as reading_task;
 use reading_task::{DailyTask, MonthlyTask, MonthlyTaskPlanPreview};
 
-use crate::web::dto::ReschedulePlansInput;
+use crate::web::dto::{ReschedulePlansInput, UpdateDailyTargetRangeInput};
 use crate::web::error::CommandError;
 use crate::web::state::AppState;
 use crate::web::utils::{log_command, run_blocking_db};
@@ -75,5 +75,23 @@ pub async fn reschedule_monthly_task_plans(
   let updated =
     run_blocking_db(move || reading_task::reschedule_unfinished_daily_tasks(&db, &id, &start_date))
       .await?;
+  Ok(Json(updated))
+}
+
+pub async fn update_monthly_task_daily_target_range(
+  State(state): State<AppState>,
+  Path(id): Path<String>,
+  Json(input): Json<UpdateDailyTargetRangeInput>,
+) -> Result<Json<MonthlyTask>, CommandError> {
+  let db = state.resolve_db()?;
+  let updated = run_blocking_db(move || {
+    reading_task::update_monthly_task_daily_target_range(
+      &db,
+      &id,
+      input.min_daily_target,
+      input.max_daily_target,
+    )
+  })
+  .await?;
   Ok(Json(updated))
 }

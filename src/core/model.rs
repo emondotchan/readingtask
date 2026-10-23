@@ -172,12 +172,18 @@ pub struct MonthlyTask {
   pub task_type: String,
   pub total_target: usize,
   #[serde(default)]
+  pub completion_threshold_percent: Option<u8>,
+  #[serde(default)]
   pub target_days: usize,
   pub created_at: String,
   #[serde(default)]
   pub shopcodes: Vec<String>,
   #[serde(default)]
   pub excluded_open_ids: Vec<String>,
+  #[serde(default)]
+  pub min_daily_target: Option<usize>,
+  #[serde(default)]
+  pub max_daily_target: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

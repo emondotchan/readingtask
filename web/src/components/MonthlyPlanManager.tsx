@@ -92,6 +92,16 @@ function buildMonthlyTaskId(courseId: string, managerId: string, taskType: TaskT
   return `${getTaskMonthPrefix()}:${courseId.trim()}:${managerId.trim()}:${taskType}`;
 }
 
+function isCurrentMonthTask(task: MonthlyTask) {
+  const currentPrefix = getTaskMonthPrefix();
+  if (task.id.startsWith(`${currentPrefix}:`)) {
+    return true;
+  }
+  const taskDate = new Date(task.created_at);
+  const taskMonth = `${taskDate.getFullYear()}-${String(taskDate.getMonth() + 1).padStart(2, "0")}`;
+  return taskMonth === getCurrentMonth();
+}
+
 function parseMultilineValues(raw: string) {
   const values: string[] = [];
   const seen = new Set<string>();
@@ -106,6 +116,11 @@ function parseMultilineValues(raw: string) {
   }
 
   return values;
+}
+
+function parseCompletionThresholdPercent(raw: string) {
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 1 && value <= 100 ? value : null;
 }
 
 function getDailyTaskProgressTotal(task: DailyTask) {
@@ -171,6 +186,12 @@ export default function MonthlyPlanManager({
   const [kloraneReadingUrl, setKloraneReadingUrl] = useState("");
   const [customShopcodesText, setCustomShopcodesText] = useState("");
   const [excludedOpenIdsText, setExcludedOpenIdsText] = useState("");
+  const [completionThresholdPercent, setCompletionThresholdPercent] = useState<
+    Record<TaskType, string>
+  >({
+    Avene: "100",
+    Klorane: "80",
+  });
   const [taskPreviews, setTaskPreviews] = useState<
     Partial<Record<TaskType, MonthlyTaskPlanPreview>>
   >({});
@@ -202,6 +223,7 @@ export default function MonthlyPlanManager({
     setKloraneReadingUrl("");
     setCustomShopcodesText("");
     setExcludedOpenIdsText("");
+    setCompletionThresholdPercent({ Avene: "100", Klorane: "80" });
     setTaskPreviews({});
     setPreviewLoading(false);
     setCreateError(null);
@@ -273,8 +295,9 @@ export default function MonthlyPlanManager({
     for (const task of ts) {
       try {
         const dailyTasks = await getTaskDailyTasks(task.id);
+        const todayTask = dailyTasks.find((item) => item.date === today);
         const pendingTask = dailyTasks.find((item) => !isCompletedDay(item) && !item.is_locked);
-        const activeTask = pendingTask ?? dailyTasks.find((item) => item.date === today) ?? null;
+        const activeTask = todayTask ?? pendingTask ?? null;
         progressEntries.push([task.id, activeTask] as const);
         completedCountEntries.push([
           task.id,
@@ -395,6 +418,13 @@ export default function MonthlyPlanManager({
     () => parseMultilineValues(excludedOpenIdsText),
     [excludedOpenIdsText],
   );
+  const parsedCompletionThresholdPercents = {
+    Avene: parseCompletionThresholdPercent(completionThresholdPercent.Avene),
+    Klorane: parseCompletionThresholdPercent(completionThresholdPercent.Klorane),
+  };
+  const validCompletionThresholdPercent = Object.values(parsedCompletionThresholdPercents).every(
+    (value) => value !== null,
+  );
 
   useEffect(() => {
     if (!runtimeConfigured) {
@@ -428,6 +458,7 @@ export default function MonthlyPlanManager({
           reading_url: readingUrl.trim(),
           task_type: taskType,
           total_target: 0,
+          completion_threshold_percent: parsedCompletionThresholdPercents[taskType],
           target_days: 0,
           created_at: new Date().toISOString(),
           shopcodes: customShopcodes,
@@ -483,6 +514,9 @@ export default function MonthlyPlanManager({
     parsedReadingLinks,
     runtimeConfigured,
     selectedCourses,
+    validCompletionThresholdPercent,
+    completionThresholdPercent.Avene,
+    completionThresholdPercent.Klorane,
   ]);
 
   const monthlyTaskDrafts = useMemo(() => {
@@ -540,6 +574,7 @@ export default function MonthlyPlanManager({
           reading_url: draft.readingUrl.trim(),
           task_type: draft.taskType,
           total_target: draft.preview.total_target,
+          completion_threshold_percent: parsedCompletionThresholdPercents[draft.taskType],
           target_days: 0,
           created_at: createdAt,
           shopcodes: customShopcodes,
@@ -574,7 +609,10 @@ export default function MonthlyPlanManager({
 
     try {
       const todayDate = getTodayDate();
-      const tasksToRun = tasks.filter((task) => {
+      const currentMonth = getCurrentMonth();
+      // 默认仅启动当月任务，且优先遵循当前的表格筛选（如按 FC、任务类型筛选）
+      const candidateTasks = (filterMonth === currentMonth ? filteredTasks : tasks).filter(isCurrentMonthTask);
+      const tasksToRun = candidateTasks.filter((task) => {
         if ((completedCountMap[task.id] ?? 0) >= task.total_target) return false;
         const progress = progressMap[task.id];
         if (progress && isCompletedDay(progress)) return false;
@@ -622,6 +660,10 @@ export default function MonthlyPlanManager({
           currentRun={getTaskRun(selectedTask.id) ?? undefined}
           executeDaily={executeDaily}
           pauseDaily={pauseDaily}
+          onTaskUpdated={(updatedTask) => {
+            setSelectedTask(updatedTask);
+            setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
+          }}
         />
       ) : (
         <Card className="min-h-[400px] overflow-hidden border-border shadow-sm transition-all hover:border-primary/30">
@@ -650,7 +692,8 @@ export default function MonthlyPlanManager({
                     size="sm"
                     className="h-8 shadow-sm"
                     onClick={handleStartAll}
-                    disabled={!runtimeReady || !!runtimeError}
+                    disabled={!runtimeReady || !!runtimeError || filterMonth !== getCurrentMonth()}
+                    title={filterMonth !== getCurrentMonth() ? "仅支持一键启动当月任务" : undefined}
                   >
                     <PlayIcon className="mr-1 size-3.5" />
                     一键开始
@@ -832,7 +875,15 @@ export default function MonthlyPlanManager({
                               ) : isCompletedMonth ? (
                                 <span className="text-xs text-muted-foreground">本月已完成</span>
                               ) : (
-                                <span className="text-xs text-muted-foreground">未开始 (15~25家)</span>
+                                <span className="text-xs text-muted-foreground">
+                                  未开始 (
+                                  {task.min_daily_target != null && task.max_daily_target != null
+                                    ? task.min_daily_target === task.max_daily_target
+                                      ? `${task.min_daily_target}家`
+                                      : `${task.min_daily_target}~${task.max_daily_target}家`
+                                    : "15~25家"}
+                                  )
+                                </span>
                               )}
                             </TableCell>
                             <TableCell className="px-4 align-middle">
@@ -942,7 +993,7 @@ export default function MonthlyPlanManager({
                                         void pauseDaily(task.id);
                                         return;
                                       }
-                                      void executeDaily(task.id, prog?.date ?? today);
+                                      void executeDaily(task.id, today);
                                     }}
                                   >
                                     {isRunning ? (
@@ -1076,6 +1127,31 @@ export default function MonthlyPlanManager({
                           {selectedCourse.task_type}
                         </p>
                       )}
+                      <div className="mt-2 flex items-center gap-2">
+                        <label htmlFor={`${fieldId}-threshold`} className="text-sm">
+                          完成阈值
+                        </label>
+                        <Input
+                          id={`${fieldId}-threshold`}
+                          type="number"
+                          min={1}
+                          max={100}
+                          step={1}
+                          required
+                          className="w-24"
+                          value={completionThresholdPercent[taskType]}
+                          onChange={(event) =>
+                            setCompletionThresholdPercent((previous) => ({
+                              ...previous,
+                              [taskType]: event.target.value,
+                            }))
+                          }
+                        />
+                        <span className="text-sm text-muted-foreground">%</span>
+                      </div>
+                      {parsedCompletionThresholdPercents[taskType] === null && (
+                        <p className="text-xs text-destructive">请输入 1~100 的整数百分比。</p>
+                      )}
                     </Field>
                   );
                 })}
@@ -1149,7 +1225,7 @@ export default function MonthlyPlanManager({
                             </Badge>
                             <span className="text-sm text-muted-foreground">
                               符合条件门店 {preview.eligible_shop_count} 家。 月度目标门店{" "}
-                              {preview.total_target} 家。
+                              {preview.total_target} 家（{completionThresholdPercent[taskType]}%）。
                             </span>
                           </div>
                         </div>
@@ -1178,6 +1254,7 @@ export default function MonthlyPlanManager({
                       !!runtimeError ||
                       !fcName ||
                       monthlyTaskDrafts.length !== 2 ||
+                      !validCompletionThresholdPercent ||
                       previewLoading
                     }
                   >

@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   CheckCircle2Icon,
+  CheckIcon,
   AlertCircleIcon,
   ActivityIcon,
   ArrowLeftIcon,
@@ -21,6 +22,7 @@ import {
   PencilIcon,
   PlayIcon,
   RotateCcwIcon,
+  SlidersIcon,
   LockIcon,
   SquareIcon,
 } from "lucide-react";
@@ -29,12 +31,14 @@ import {
   getTaskResults,
   retryTaskResult,
   saveDailyTask,
+  updateMonthlyTaskDailyTargetRange,
 } from "@/api/commands";
 import type { DailyTask, MonthlyTask, MonthlyTaskPlanPreview, TaskItemResult } from "@/types";
 import { cn, getErrorMessage } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -51,6 +55,7 @@ interface Props {
   currentRun?: MonthlyTaskRunState;
   executeDaily?: (taskId: string, date: string) => Promise<void>;
   pauseDaily?: (taskId: string) => Promise<void>;
+  onTaskUpdated?: (task: MonthlyTask) => void;
 }
 
 const TASK_TYPE_BADGE_CLASSNAME = {
@@ -96,7 +101,15 @@ export function TaskStatusDialog({
   currentRun,
   executeDaily,
   pauseDaily,
+  onTaskUpdated,
 }: Props) {
+  const [currentTask, setCurrentTask] = useState<MonthlyTask | null>(task);
+  useEffect(() => {
+    setCurrentTask(task);
+  }, [task]);
+
+  const activeTask = currentTask ?? task;
+
   const [historyResults, setHistoryResults] = useState<TaskItemResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState("all");
@@ -114,6 +127,12 @@ export function TaskStatusDialog({
     completed: number;
     total: number;
   } | null>(null);
+  const [isEditingRange, setIsEditingRange] = useState(false);
+  const [minTargetInput, setMinTargetInput] = useState("");
+  const [maxTargetInput, setMaxTargetInput] = useState("");
+  const [rangeSaving, setRangeSaving] = useState(false);
+  const [rangeError, setRangeError] = useState<string | null>(null);
+  const [rangeSuccessMessage, setRangeSuccessMessage] = useState<string | null>(null);
   const pageSize = 10;
 
   const getResultSucceeded = useCallback(
@@ -245,7 +264,95 @@ export function TaskStatusDialog({
     setRetryingResultKey(null);
     setRetryMessage(null);
     setBatchRetryProgress(null);
+    setIsEditingRange(false);
+    setMinTargetInput("");
+    setMaxTargetInput("");
+    setRangeError(null);
+    setRangeSuccessMessage(null);
   }, [task?.id]);
+
+  const hasCustomRange =
+    activeTask?.min_daily_target != null && activeTask?.max_daily_target != null;
+
+  const handleStartEditRange = () => {
+    setMinTargetInput(activeTask?.min_daily_target?.toString() ?? "");
+    setMaxTargetInput(activeTask?.max_daily_target?.toString() ?? "");
+    setRangeError(null);
+    setRangeSuccessMessage(null);
+    setIsEditingRange(true);
+  };
+
+  const handleSaveRange = async () => {
+    if (!activeTask) return;
+
+    const trimmedMin = minTargetInput.trim();
+    const trimmedMax = maxTargetInput.trim();
+
+    if (trimmedMin === "" && trimmedMax === "") {
+      await handleResetRange();
+      return;
+    }
+
+    if (trimmedMin === "" || trimmedMax === "") {
+      setRangeError("请同时设置最小与最大数量，或清空输入以恢复默认 15~25 家");
+      return;
+    }
+
+    const minNum = Number(trimmedMin);
+    const maxNum = Number(trimmedMax);
+
+    if (!Number.isInteger(minNum) || !Number.isInteger(maxNum) || minNum < 1 || maxNum < 1) {
+      setRangeError("门店数量必须为大于 0 的有效整数");
+      return;
+    }
+
+    if (minNum > maxNum) {
+      setRangeError("最小数量不能大于最大数量");
+      return;
+    }
+
+    setRangeSaving(true);
+    setRangeError(null);
+    setRangeSuccessMessage(null);
+
+    try {
+      const updated = await updateMonthlyTaskDailyTargetRange(activeTask.id, minNum, maxNum);
+      setCurrentTask(updated);
+      onTaskUpdated?.(updated);
+      setIsEditingRange(false);
+      setRangeSuccessMessage(
+        minNum === maxNum
+          ? `已单独设置每日预期完成门店数为 ${minNum} 家（覆盖默认 15~25 家）`
+          : `已单独设置每日预期完成门店数为 ${minNum}~${maxNum} 家（覆盖默认 15~25 家）`,
+      );
+    } catch (error) {
+      setRangeError(`保存失败：${getErrorMessage(error)}`);
+    } finally {
+      setRangeSaving(false);
+    }
+  };
+
+  const handleResetRange = async () => {
+    if (!activeTask) return;
+
+    setRangeSaving(true);
+    setRangeError(null);
+    setRangeSuccessMessage(null);
+
+    try {
+      const updated = await updateMonthlyTaskDailyTargetRange(activeTask.id, null, null);
+      setCurrentTask(updated);
+      onTaskUpdated?.(updated);
+      setMinTargetInput("");
+      setMaxTargetInput("");
+      setIsEditingRange(false);
+      setRangeSuccessMessage("已恢复为默认每日预期完成门店数（15~25 家）");
+    } catch (error) {
+      setRangeError(`重置失败：${getErrorMessage(error)}`);
+    } finally {
+      setRangeSaving(false);
+    }
+  };
 
   const isRunning = currentRun?.runState === "running";
   const mergedHistoryResults = useMemo(() => {
@@ -402,7 +509,7 @@ export function TaskStatusDialog({
       ? (currentRun.processedCount / currentRun.requestedCount) * 100
       : 0;
 
-  if (!task) return null;
+  if (!activeTask) return null;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-background">
@@ -421,16 +528,16 @@ export function TaskStatusDialog({
                   </div>
                   <div className="space-y-1">
                     <CardTitle className="flex flex-wrap items-center gap-2 text-2xl">
-                      <span>{task.fc_name}</span>
+                      <span>{activeTask.fc_name}</span>
                       <Badge
                         variant="outline"
-                        className={TASK_TYPE_BADGE_CLASSNAME[task.task_type]}
+                        className={TASK_TYPE_BADGE_CLASSNAME[activeTask.task_type]}
                       >
-                        {task.task_type}
+                        {activeTask.task_type}
                       </Badge>
                     </CardTitle>
                     <p className="font-mono text-xs text-muted-foreground">
-                      taskId: {task.id} • courseId: {task.s_course_id} • UID: {task.s_manager_id}
+                      taskId: {activeTask.id} • courseId: {activeTask.s_course_id} • UID: {activeTask.s_manager_id}
                     </p>
                   </div>
                 </div>
@@ -480,7 +587,7 @@ export function TaskStatusDialog({
                 </span>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-bold text-foreground">
-                    {task.total_target}
+                    {activeTask.total_target}
                   </span>
                   <span className="text-xs text-muted-foreground">门店</span>
                 </div>
@@ -491,7 +598,7 @@ export function TaskStatusDialog({
                 </span>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-bold text-foreground">{usedShopCount}</span>
-                  <span className="text-xs text-muted-foreground">/ {task.total_target} 家</span>
+                  <span className="text-xs text-muted-foreground">/ {activeTask.total_target} 家</span>
                 </div>
               </div>
               <div className="flex h-24 flex-col justify-between rounded-xl border border-emerald-200 bg-emerald-50/20 p-4 shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
@@ -518,6 +625,146 @@ export function TaskStatusDialog({
               </div>
             </div>
 
+            {/* 每日预期完成门店数量范围设置 */}
+            <div className="rounded-xl border border-border bg-card p-4 sm:p-5 shadow-sm transition-all">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <SlidersIcon className="size-4 text-primary" />
+                    <span className="text-sm font-semibold text-foreground">
+                      每日预期完成门店数量范围
+                    </span>
+                    {hasCustomRange ? (
+                      <Badge
+                        variant="outline"
+                        className="border-primary/30 bg-primary/10 text-primary dark:border-primary/40 dark:bg-primary/15"
+                      >
+                        已单独设置:{" "}
+                        {activeTask.min_daily_target === activeTask.max_daily_target
+                          ? `${activeTask.min_daily_target} 家/天`
+                          : `${activeTask.min_daily_target} ~ ${activeTask.max_daily_target} 家/天`}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-muted-foreground">
+                        默认: 15 ~ 25 家/天
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {hasCustomRange
+                      ? "已单独设置每日目标门店数范围（覆盖默认 15~25 家），后续自动生成每日任务时将在此范围内分配。"
+                      : "未单独设置范围时，生成每日任务将默认按 15~25 家门店分配。"}
+                  </p>
+                </div>
+
+                {!isEditingRange && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleStartEditRange}
+                    >
+                      <PencilIcon className="mr-1.5 size-3.5" />
+                      {hasCustomRange ? "修改范围" : "设置范围"}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {isEditingRange && (
+                <div className="mt-4 pt-3.5 border-t border-border/70 flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-xs font-medium text-foreground shrink-0">
+                      期望每日门店范围：
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min={1}
+                        placeholder="15"
+                        className="w-20 h-8 text-center text-sm font-mono"
+                        value={minTargetInput}
+                        onChange={(e) => {
+                          setMinTargetInput(e.target.value);
+                          setRangeError(null);
+                        }}
+                      />
+                      <span className="text-sm text-muted-foreground font-medium">~</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        placeholder="25"
+                        className="w-20 h-8 text-center text-sm font-mono"
+                        value={maxTargetInput}
+                        onChange={(e) => {
+                          setMaxTargetInput(e.target.value);
+                          setRangeError(null);
+                        }}
+                      />
+                      <span className="text-xs text-muted-foreground">家 / 天</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 ml-auto">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        disabled={rangeSaving}
+                        onClick={handleSaveRange}
+                      >
+                        {rangeSaving ? (
+                          <Spinner className="mr-1.5 size-3.5" />
+                        ) : (
+                          <CheckIcon className="mr-1.5 size-3.5" />
+                        )}
+                        保存
+                      </Button>
+                      {hasCustomRange && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={rangeSaving}
+                          onClick={handleResetRange}
+                          title="恢复系统默认 15~25 家"
+                        >
+                          <RotateCcwIcon className="mr-1.5 size-3.5" />
+                          恢复默认
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={rangeSaving}
+                        onClick={() => {
+                          setIsEditingRange(false);
+                          setRangeError(null);
+                        }}
+                      >
+                        取消
+                      </Button>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-muted-foreground">
+                    提示：单独设置后将覆盖默认的 15~25 家；如需恢复默认，可点击“恢复默认”或清空输入后保存。
+                  </p>
+
+                  {rangeError && (
+                    <div className="flex items-center gap-1.5 text-xs text-rose-500 dark:text-rose-400 font-medium">
+                      <AlertCircleIcon className="size-3.5 shrink-0" />
+                      <span>{rangeError}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {rangeSuccessMessage && !isEditingRange && (
+                <div className="mt-3 pt-2.5 border-t border-border/50 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                  <CheckCircle2Icon className="size-3.5 shrink-0" />
+                  <span>{rangeSuccessMessage}</span>
+                </div>
+              )}
+            </div>
+
             <div className="space-y-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
@@ -533,7 +780,7 @@ export function TaskStatusDialog({
                         if (!dailyPlansExpanded) {
                           setDailyPlansExpanded(true);
                         }
-                        void executeDaily?.(task.id, firstPendingDay.date);
+                        void executeDaily?.(activeTask.id, firstPendingDay.date);
                       }}
                     >
                       <PlayIcon className="mr-1 size-3.5" />
@@ -677,10 +924,10 @@ export function TaskStatusDialog({
                                   }
                                   onClick={() => {
                                     if (isRunningDay) {
-                                      void pauseDaily?.(task.id);
+                                      void pauseDaily?.(activeTask.id);
                                       return;
                                     }
-                                    void executeDaily?.(task.id, day.date);
+                                    void executeDaily?.(activeTask.id, day.date);
                                   }}
                                 >
                                   {isRunningDay ? (

@@ -8,8 +8,7 @@ use crate::core::db::{
 use crate::core::error::AppError;
 use crate::core::executor::archive::archive_quick_run_results_for_date;
 use crate::core::executor::planner::{
-  calculate_monthly_target_bounds, calculate_sleep_secs_at, is_daily_task_completed,
-  parse_reading_url,
+  calculate_monthly_target, calculate_sleep_secs_at, is_daily_task_completed, parse_reading_url,
 };
 use crate::core::executor::runner::{
   run_daily_task_with_progress_controlled, validate_retry_task_result,
@@ -55,10 +54,13 @@ async fn incomplete_daily_task_can_resume_after_monthly_threshold_reached() {
     reading_url: String::new(),
     task_type: "Klorane".to_string(),
     total_target: 11,
+    completion_threshold_percent: None,
     target_days: 2,
     created_at: "2026-08-01 00:00:00".to_string(),
     shopcodes: shops.iter().map(|shop| shop.shop_code.clone()).collect(),
     excluded_open_ids: Vec::new(),
+    min_daily_target: None,
+    max_daily_target: None,
   };
   add_monthly_task(&db, &task).expect("add task");
   save_daily_task(
@@ -160,6 +162,7 @@ fn quick_run_archive_credits_results_to_planned_days_by_shopcode() {
     reading_url: String::new(),
     task_type: "Klorane".to_string(),
     total_target: 4,
+    completion_threshold_percent: None,
     target_days: 2,
     created_at: "2026-08-01 00:00:00".to_string(),
     shopcodes: vec![
@@ -169,6 +172,8 @@ fn quick_run_archive_credits_results_to_planned_days_by_shopcode() {
       "D".to_string(),
     ],
     excluded_open_ids: Vec::new(),
+    min_daily_target: None,
+    max_daily_target: None,
   };
   add_monthly_task(&db, &task).expect("add task");
   for (date, shopcodes) in [
@@ -324,21 +329,10 @@ fn select_open_ids_generates_missing_count() {
 }
 
 #[test]
-fn test_calculate_monthly_target_bounds() {
-  // Avene: 70% ~ 75%
-  let (min, max) = calculate_monthly_target_bounds(100, "Avene");
-  assert_eq!(min, 70);
-  assert_eq!(max, 75);
-
-  // Klorane: 85% ~ 95%
-  let (min, max) = calculate_monthly_target_bounds(100, "Klorane");
-  assert_eq!(min, 85);
-  assert_eq!(max, 95);
-
-  // Other: 100% ~ 100%
-  let (min, max) = calculate_monthly_target_bounds(100, "Other");
-  assert_eq!(min, 100);
-  assert_eq!(max, 100);
+fn test_calculate_monthly_target_from_percent() {
+  assert_eq!(calculate_monthly_target(100, 100), 100);
+  assert_eq!(calculate_monthly_target(100, 80), 80);
+  assert_eq!(calculate_monthly_target(3, 80), 3);
 }
 
 #[test]
@@ -365,10 +359,13 @@ fn test_dynamic_daily_task_creation_and_multiday_flow() {
     reading_url: String::new(),
     task_type: "Klorane".to_string(),
     total_target: 35,
+    completion_threshold_percent: None,
     target_days: 0,
     created_at: "2026-08-01 00:00:00".to_string(),
     shopcodes: shops.iter().map(|s| s.shop_code.clone()).collect(),
     excluded_open_ids: Vec::new(),
+    min_daily_target: None,
+    max_daily_target: None,
   };
   add_monthly_task(&db, &task).expect("add monthly task");
 
@@ -402,7 +399,7 @@ fn test_dynamic_daily_task_creation_and_multiday_flow() {
   day1_progress.run_status = "paused".to_string();
   save_daily_task(&db, &day1_progress).expect("save day 1 progress");
 
-  // Day 2 allocation: should allocate from remaining 30 unused shops
+  // Day 2 allocation: should carry over unfinished shops from Day 1 and sample from remaining
   let day2 = crate::core::executor::runner::ensure_daily_task(&db, &task, "2026-08-02")
     .expect("allocate day 2");
   assert!(day2.target_count >= 15 && day2.target_count <= 25);
@@ -411,6 +408,23 @@ fn test_dynamic_daily_task_creation_and_multiday_flow() {
     assert!(
       !day1_progress.shopcodes[..5].contains(shop_code),
       "Day 2 must not contain shops completed on Day 1"
+    );
+  }
+
+  // Day 1 should now be reconciled and locked with its 5 completed shops
+  let day1_after = get_daily_task(&db, &task.id, "2026-08-01")
+    .expect("get day 1")
+    .expect("day 1 exists");
+  assert_eq!(day1_after.target_count, 5);
+  assert_eq!(day1_after.completed_count, 5);
+  assert!(day1_after.is_locked);
+  assert_eq!(day1_after.run_status, "completed");
+
+  // Day 2 must contain the uncompleted shops from Day 1
+  for uncompleted in &day1_progress.shopcodes[5..] {
+    assert!(
+      day2.shopcodes.contains(uncompleted),
+      "Day 2 must contain uncompleted shops carried over from Day 1"
     );
   }
 }
@@ -476,4 +490,78 @@ fn select_open_ids_generates_when_all_existing_are_unavailable() {
       && !used_open_ids.contains(open_id)
       && !excluded_open_ids.contains(open_id)
   }));
+}
+
+#[test]
+fn test_custom_daily_target_range_overrides_default() {
+  let temp_dir = tempdir().expect("create temp dir");
+  let paths = AppPaths::new_with_db_path(temp_dir.path().join("test.sqlite"));
+  let db = init_db_context(&paths).expect("init db");
+
+  let shops = (0..50)
+    .map(|i| ShopRecord {
+      province: "P".to_string(),
+      city: "C".to_string(),
+      shop_code: format!("S_{i:03}"),
+      shop_name: format!("Shop {i}"),
+      fc: Some("FC_TEST".to_string()),
+      shop_type: SHOP_TYPE_KLORANE,
+    })
+    .collect::<Vec<_>>();
+  import_shops(&db, &shops).expect("import shops");
+
+  // Task with custom range 3..=7
+  let task = MonthlyTask {
+    id: "task-custom-range".to_string(),
+    fc_name: "FC_TEST".to_string(),
+    s_manager_id: "m-1".to_string(),
+    s_course_id: "c-1".to_string(),
+    reading_url: String::new(),
+    task_type: "Klorane".to_string(),
+    total_target: 50,
+    completion_threshold_percent: None,
+    target_days: 0,
+    created_at: "2026-08-01 00:00:00".to_string(),
+    shopcodes: shops.iter().map(|s| s.shop_code.clone()).collect(),
+    excluded_open_ids: Vec::new(),
+    min_daily_target: Some(3),
+    max_daily_target: Some(7),
+  };
+  add_monthly_task(&db, &task).expect("add monthly task");
+
+  let day1 = crate::core::executor::runner::ensure_daily_task(&db, &task, "2026-08-01")
+    .expect("allocate day 1");
+  assert!(
+    day1.target_count >= 3 && day1.target_count <= 7,
+    "target_count was {}",
+    day1.target_count
+  );
+  assert_eq!(day1.shopcodes.len(), day1.target_count);
+
+  // Test updating daily target range to 30..=35
+  let updated =
+    crate::core::db::update_monthly_task_daily_target_range(&db, &task.id, Some(30), Some(35))
+      .expect("update range");
+  assert_eq!(updated.min_daily_target, Some(30));
+  assert_eq!(updated.max_daily_target, Some(35));
+
+  // Test day 2 allocation with updated task
+  let day2 = crate::core::executor::runner::ensure_daily_task(&db, &updated, "2026-08-02")
+    .expect("allocate day 2");
+  assert!(
+    day2.target_count >= 30 && day2.target_count <= 35,
+    "target_count was {}",
+    day2.target_count
+  );
+
+  // Test resetting back to default None
+  let reset = crate::core::db::update_monthly_task_daily_target_range(&db, &task.id, None, None)
+    .expect("reset range");
+  assert_eq!(reset.min_daily_target, None);
+  assert_eq!(reset.max_daily_target, None);
+
+  // Test validation error: min > max
+  let err =
+    crate::core::db::update_monthly_task_daily_target_range(&db, &task.id, Some(20), Some(10));
+  assert!(err.is_err());
 }

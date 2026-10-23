@@ -234,8 +234,13 @@ where
     return Err(AppError::ExecutionError("该月度任务已全部完成".to_string()));
   }
 
+  if existing_daily_task.is_some() {
+    crate::core::db::rollover_uncompleted_shops_to_date(db, task_id, date)?;
+  }
+
   let mut today_progress = match existing_daily_task {
-    Some(progress) => progress,
+    Some(_) => crate::core::db::get_daily_task(db, task_id, date)?
+      .ok_or_else(|| AppError::ResourceUnavailableError("每日任务不存在".to_string()))?,
     None => ensure_daily_task(db, &task, date)?,
   };
 
@@ -525,6 +530,9 @@ pub(crate) fn ensure_daily_task(
     return Ok(existing);
   }
 
+  let carryover_shopcodes =
+    crate::core::db::rollover_uncompleted_shops_to_date(db, &task.id, date)?;
+
   let valid_shops = crate::core::db::get_shops_by_fc_and_type(db, &task.fc_name, &task.task_type)?;
   let target_shops = if !task.shopcodes.is_empty() {
     select_planned_shops(valid_shops, &task.shopcodes)?
@@ -538,22 +546,40 @@ pub(crate) fn ensure_daily_task(
     .filter(|shop| !used_shop_codes.contains(shop.shop_code.as_str()))
     .collect();
 
-  if unused_target_shops.is_empty() {
+  if unused_target_shops.is_empty() && carryover_shopcodes.is_empty() {
     return Err(AppError::ExecutionError("该月度任务已全部完成".to_string()));
   }
 
-  let allocated_count = if unused_target_shops.len() <= MIN_DAILY_TARGET {
+  let min_target = task.min_daily_target.unwrap_or(MIN_DAILY_TARGET);
+  let max_target = task.max_daily_target.unwrap_or(MAX_DAILY_TARGET);
+  let (min_target, max_target) = if min_target > max_target {
+    (max_target, min_target)
+  } else {
+    (min_target, max_target)
+  };
+  let min_target = min_target.max(1);
+  let max_target = max_target.max(min_target);
+
+  let desired_target = if unused_target_shops.len() <= min_target {
     unused_target_shops.len()
   } else {
-    let max = unused_target_shops.len().min(MAX_DAILY_TARGET);
-    random_daily_target(MIN_DAILY_TARGET, max)
+    let max = unused_target_shops.len().min(max_target);
+    random_daily_target(min_target, max)
   };
 
-  let selected_today_shops = sample_shops(unused_target_shops, allocated_count);
-  let selected_shopcodes = selected_today_shops
-    .into_iter()
-    .map(|s| s.shop_code)
-    .collect::<Vec<_>>();
+  let mut selected_shopcodes = carryover_shopcodes.clone();
+  if selected_shopcodes.len() < desired_target {
+    let carryover_set: std::collections::HashSet<&str> =
+      carryover_shopcodes.iter().map(|s| s.as_str()).collect();
+    let remaining_unused: Vec<ShopRecord> = unused_target_shops
+      .into_iter()
+      .filter(|shop| !carryover_set.contains(shop.shop_code.as_str()))
+      .collect();
+    let needed = desired_target - selected_shopcodes.len();
+    let additional_count = needed.min(remaining_unused.len());
+    let additional_shops = sample_shops(remaining_unused, additional_count);
+    selected_shopcodes.extend(additional_shops.into_iter().map(|s| s.shop_code));
+  }
 
   let daily_task = DailyTask {
     task_id: task.id.clone(),

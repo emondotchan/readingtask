@@ -45,7 +45,8 @@ tempfile = "3.15"
 
 [profile.dev]
 incremental = true
-debug = 1
+debug = 0
+opt-level=0
 
 [profile.dev.build-override]
 debug = false

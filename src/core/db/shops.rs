@@ -160,8 +160,8 @@ pub fn get_shop_count_by_fc_and_type(
 
   let eligible_count = count as usize;
   let target_count = match task_type {
-    "Avene" => (eligible_count * 4).div_ceil(5),
-    "Klorane" => eligible_count,
+    "Avene" => eligible_count,
+    "Klorane" => (eligible_count * 85).div_ceil(100),
     _ => eligible_count,
   };
 

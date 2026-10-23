@@ -11,8 +11,8 @@ use crate::core::model::{
   DailyTask, MonthlyTask, MonthlyTaskPlanPreview, ShopRecord, TaskRunRequest,
 };
 
-pub(crate) const MIN_DAILY_TARGET: usize = 15;
-pub(crate) const MAX_DAILY_TARGET: usize = 25;
+pub const MIN_DAILY_TARGET: usize = 15;
+pub const MAX_DAILY_TARGET: usize = 25;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ReadingLinkData {
@@ -124,10 +124,13 @@ pub fn create_monthly_task_with_plan(
     reading_url: task.reading_url.clone(),
     task_type: task.task_type.clone(),
     total_target: plan.total_target,
+    completion_threshold_percent: task.completion_threshold_percent,
     target_days: 0,
     created_at: task.created_at.clone(),
     shopcodes: plan.shopcodes.clone(),
     excluded_open_ids: task.excluded_open_ids.clone(),
+    min_daily_target: task.min_daily_target,
+    max_daily_target: task.max_daily_target,
   };
 
   crate::core::db::add_monthly_task(db, &planned_task)?;
@@ -138,6 +141,14 @@ pub(crate) fn build_monthly_task_plan(
   task: &MonthlyTask,
   shops: Vec<ShopRecord>,
 ) -> Result<MonthlyTaskPlanPreview, AppError> {
+  if let Some(percent) = task.completion_threshold_percent
+    && !(1..=100).contains(&percent)
+  {
+    return Err(AppError::ValidationError(
+      "月度完成阈值必须是 1~100 的整数百分比".to_string(),
+    ));
+  }
+
   let eligible_shops = filter_task_shops(shops, &task.fc_name, &task.task_type);
   let eligible_shop_count = eligible_shops.len();
   if eligible_shops.is_empty() {
@@ -149,7 +160,12 @@ pub(crate) fn build_monthly_task_plan(
 
   let custom_shopcodes = normalize_shopcodes(&task.shopcodes);
   let total_target = if custom_shopcodes.is_empty() {
-    calculate_monthly_target(eligible_shop_count, &task.task_type)
+    calculate_monthly_target(
+      eligible_shop_count,
+      task
+        .completion_threshold_percent
+        .unwrap_or_else(|| default_completion_threshold_percent(&task.task_type)),
+    )
   } else {
     custom_shopcodes.len()
   };
@@ -180,34 +196,17 @@ pub(crate) fn build_monthly_task_plan(
   })
 }
 
-pub(crate) fn calculate_monthly_target(eligible_shop_count: usize, task_type: &str) -> usize {
-  let (min, max) = calculate_monthly_target_bounds(eligible_shop_count, task_type);
-  if min == max {
-    return min;
+pub(crate) fn calculate_monthly_target(eligible_shop_count: usize, percent: u8) -> usize {
+  if eligible_shop_count == 0 {
+    return 0;
   }
-  rand::rng().random_range(min..=max)
+  (eligible_shop_count * percent.clamp(1, 100) as usize).div_ceil(100)
 }
 
-pub(crate) fn calculate_monthly_target_bounds(
-  eligible_shop_count: usize,
-  task_type: &str,
-) -> (usize, usize) {
-  if eligible_shop_count == 0 {
-    return (0, 0);
-  }
-
+pub(crate) fn default_completion_threshold_percent(task_type: &str) -> u8 {
   match task_type {
-    "Avene" => {
-      let min = (eligible_shop_count * 70).div_ceil(100);
-      let max = (eligible_shop_count * 75) / 100;
-      if min > max { (max, max) } else { (min, max) }
-    }
-    "Klorane" => {
-      let min = (eligible_shop_count * 85).div_ceil(100);
-      let max = (eligible_shop_count * 95) / 100;
-      if min > max { (max, max) } else { (min, max) }
-    }
-    _ => (eligible_shop_count, eligible_shop_count),
+    "Klorane" => 80,
+    _ => 100,
   }
 }
 
